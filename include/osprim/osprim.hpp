@@ -7,5 +7,6 @@
 
 #include <osprim/base.hpp>
 #include <osprim/clock.hpp>
+#include <osprim/wait.hpp>
 
 #endif // !OSPRIM_OSPRIM_HPP
