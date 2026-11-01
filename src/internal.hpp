@@ -14,6 +14,7 @@
 #include <osprim/clock.hpp>
 #include <osprim/power.hpp>
 #include <osprim/thread.hpp>
+#include <osprim/topology.hpp>
 #include <osprim/wait.hpp>
 
 #include <stddef.h>
@@ -232,6 +233,114 @@ namespace osprim
       void platform_thermal_watch_end(uint64_t native, int32_t token) noexcept;
       status<thermal_result> platform_thermal_headroom(
           int64_t forecast_ns, float* out) noexcept;
+
+      /*****************************/
+      /* TOPOLOGY                  */
+      /*****************************/
+
+      /// @brief One logical CPU as a platform source describes it. Keys only
+      /// need to be equal for equal things: dense indices are derived later.
+      struct cpu_record
+      {
+        uint64_t id;
+        uint64_t core_key;
+        uint64_t package_key;
+        uint64_t llc_key;
+        uint64_t node_key;
+        /// @brief Higher is faster; equal ranks are one class
+        uint64_t rank;
+        /// @brief Free for the platform source (Windows: group << 8 | index)
+        uint64_t location;
+        bool available;
+      };
+
+      /// @brief Working storage of topology_query() and of the affinity
+      /// functions, used under topology_lock (the library does not allocate).
+      struct topology_scratch
+      {
+        cpu_record records[TOPOLOGY_MAX_CPUS];
+        uint8_t classes[TOPOLOGY_MAX_CPUS];
+        uint32_t dense[TOPOLOGY_MAX_CPUS];
+      };
+
+      extern topology_scratch g_topology_scratch;
+
+      /// @brief Guards g_topology_scratch and the platform scratch buffers.
+      struct topology_lock
+      {
+        topology_lock() noexcept;
+        ~topology_lock();
+        topology_lock(const topology_lock&)            = delete;
+        topology_lock& operator=(const topology_lock&) = delete;
+      };
+
+      /// @brief Sorts records by id, assigns classes (distinct ranks, highest
+      /// first, beyond MAX_CORE_CLASSES merged into the last), fills the
+      /// summary counts and writes the caller's entries with dense indices.
+      /// The caches of `out->classes` are left to the caller.
+      /// @param multi_source Source when there are several classes
+      /// @param first_of_class Receives the index of one record per class
+      void finish_topology(
+          cpu_record* records, uint8_t* classes, size_t n,
+          core_class_source multi_source, topology_summary* out, cpu_desc* cpus,
+          size_t capacity, size_t first_of_class[MAX_CORE_CLASSES]) noexcept;
+
+      /// @brief Saves what set_current_thread_allowed_cpus() gives back for an
+      /// empty list (Linux, Android: the calling thread's CPUs).
+      void topology_initialize() noexcept;
+
+      // Implemented by the platform source (topology_linux.cpp, ...):
+
+      status<cpu_budget_result> platform_cpu_budget(cpu_budget* out) noexcept;
+      status<topology_result> platform_topology_query(
+          topology_summary* out, cpu_desc* cpus, size_t capacity,
+          size_t* count) noexcept;
+      status<thread_affinity_result> platform_preferred_cpus(
+          const uint64_t* ids, size_t count) noexcept;
+      status<thread_affinity_result> platform_allowed_cpus(
+          const uint64_t* ids, size_t count) noexcept;
+      void platform_topology_initialize() noexcept;
+
+#if OSPRIM_OS_LINUX || OSPRIM_OS_ANDROID
+      /// @brief A set of CPU numbers (as the kernel's cpu_set_t, larger).
+      struct cpu_bits
+      {
+        uint64_t words[TOPOLOGY_MAX_CPUS / 64];
+
+        void set(size_t cpu) noexcept
+        {
+          words[cpu / 64] |= uint64_t{1} << (cpu % 64);
+        }
+        bool test(size_t cpu) const noexcept
+        {
+          return cpu < TOPOLOGY_MAX_CPUS
+                 && ((words[cpu / 64] >> (cpu % 64)) & 1u) != 0;
+        }
+        size_t count() const noexcept;
+      };
+
+      /// @brief The topology under `root` (empty: the real one; tests pass a
+      /// directory holding a fake sys/ tree), with `allowed` as the CPUs a new
+      /// thread may use.
+      status<topology_result> linux_topology(
+          const char* root, const cpu_bits& allowed, topology_summary* out,
+          cpu_desc* cpus, size_t capacity, size_t* count) noexcept;
+
+      /// @brief The tightest cgroup CPU quota of this process, read from
+      /// `root`/proc/self/cgroup and `root`/sys/fs/cgroup (empty: the real ones).
+      void linux_cgroup_quota(
+          const char* root, uint32_t* millicpus, int64_t* period_ns) noexcept;
+#endif
+
+#if OSPRIM_OS_WINDOWS
+      /// @brief Records from a GetSystemCpuSetInformation buffer, with the
+      /// process's allowed groups and primary-group mask (`primary_mask` 0:
+      /// every CPU of the allowed groups). Exposed for tests.
+      size_t windows_parse_cpu_sets(
+          const void* buffer, size_t size, const uint16_t* allowed_groups,
+          size_t group_count, uint16_t primary_group, uint64_t primary_mask,
+          cpu_record* records, size_t capacity) noexcept;
+#endif
 
       /*****************************/
       /* WAIT                      */
