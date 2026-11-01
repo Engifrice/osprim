@@ -56,6 +56,20 @@ namespace osprim
 
     namespace detail
     {
+      bool awake_ns_to_mach_ceil(int64_t ns, uint64_t* ticks) noexcept
+      {
+        const uint64_t n     = static_cast<uint64_t>(ns);
+        const uint64_t numer = g_clock.mach_numer;
+        const uint64_t denom = g_clock.mach_denom;
+        // ticks = ceil(n * denom / numer), split to avoid overflowing n * denom
+        const uint64_t q = n / numer;
+        const uint64_t r = n % numer;
+        if (q > (UINT64_MAX - denom) / denom)
+          return false;
+        *ticks = q * denom + (r * denom + numer - 1) / numer;
+        return true;
+      }
+
       status<initialize_result> platform_clock_initialize() noexcept
       {
         mach_timebase_info_data_t tb{};
