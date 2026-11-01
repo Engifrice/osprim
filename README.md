@@ -12,6 +12,7 @@ osprim provides **mechanism, not policy**: the lowest-level building blocks, wit
 | Clock  | `osprim/clock.hpp`  | Awake, continuous and wall clocks; raw tick counter                                                   |
 | Wait   | `osprim/wait.hpp`   | Wait on an address until woken or an awake deadline; wake one or all                                  |
 | Thread | `osprim/thread.hpp` | Create, join with a deadline, detach; ids, names, scheduling classes; yield, spin hint, precise sleep |
+| Power  | `osprim/power.hpp`  | Timer resolution, process activity, performance sessions, thermal state                               |
 
 `osprim/osprim.hpp` includes everything.
 
@@ -116,14 +117,45 @@ if (osprim::thread_create(w.ctx, osprim::thread_desc{.stack_size = 1 << 20}).ok(
 - `sleep_until()` never returns early: absolute `clock_nanosleep` on `CLOCK_MONOTONIC`, `mach_wait_until`, or a high-resolution waitable timer on Windows (precise without raising the system timer resolution).
 - `cpu_relax()` is the spin-loop hint.
 
-| `thread_class` | Windows        | Apple QoS          | Linux, Android nice |
-| -------------- | -------------- | ------------------ | ------------------- |
-| `BACKGROUND`   | `LOWEST`       | `BACKGROUND`       | 10                  |
-| `UTILITY`      | `BELOW_NORMAL` | `UTILITY`          | 5                   |
-| `NORMAL`       | `NORMAL`       | `USER_INITIATED`   | 0                   |
-| `INTERACTIVE`  | `ABOVE_NORMAL` | `USER_INTERACTIVE` | -6                  |
+| `thread_class` | Windows          | Apple QoS          | Linux, Android nice |
+| -------------- | ---------------- | ------------------ | ------------------- |
+| `BACKGROUND`   | `LOWEST`, EcoQoS | `BACKGROUND`       | 10                  |
+| `UTILITY`      | `BELOW_NORMAL`   | `UTILITY`          | 5                   |
+| `NORMAL`       | `NORMAL`         | `USER_INITIATED`   | 0                   |
+| `INTERACTIVE`  | `ABOVE_NORMAL`   | `USER_INTERACTIVE` | -6                  |
 
 Desktop Linux usually refuses unprivileged users any decrease of the nice value: `INTERACTIVE`, and `NORMAL` after a lower class, return `SET_THREAD_CLASS_DENIED` (Android allows them).
+
+## Power and timing
+
+The operating system constantly trades speed for battery and heat, and guesses what each program needs from window focus, user input and CPU use. These features tell it when its guess is wrong, or tell the program what the system is doing.
+
+**Which feature do I need?**
+
+| Your goal                                             | Use                                            | Scope   | Cost               | Does something on                         |
+| ----------------------------------------------------- | ---------------------------------------------- | ------- | ------------------ | ----------------------------------------- |
+| Wake up on time for the next frame                    | `sleep_until`                                  | thread  | none               | all                                       |
+| Precise timeouts on waits (about 1 ms, not 15 ms)     | `process_timer_resolution_begin` / `_end`      | process | battery while held | Windows (`OK` elsewhere: already precise) |
+| Keep unimportant work off the fast cores              | `set_current_thread_class(BACKGROUND)`         | thread  | none               | all                                       |
+| The user is here, though the OS sees no input         | `process_activity_begin` / `_end`              | process | battery while held | Windows, macOS                            |
+| Meet a frame deadline without wasting power on mobile | `perf_session_create`, `_report`               | threads | none               | Android 13+                               |
+| Lower quality before the device overheats             | `current_thermal_level`, `thermal_watch_begin` | process | none               | Android 11+, Apple                        |
+
+- **One feature per goal:** osprim picks each platform's mechanism.
+- **Results tell whether the goal is met:** `OK` means it is in effect (whether osprim acted or the platform already behaves that way); `UNSUPPORTED` means this platform cannot provide it and nothing changed.
+- **The scope is in the name:** `process_` affects the whole program, `current_thread_` only the caller.
+- **Nothing happens unless asked:** `initialize()` changes no power setting. Requests are handles, tracked like every other handle. `get_power_features()` tells once which goals the device supports.
+
+| Feature                                | Windows                                                                              | Apple                                                                  | Linux                         | Android                                |
+| -------------------------------------- | ------------------------------------------------------------------------------------ | ---------------------------------------------------------------------- | ----------------------------- | -------------------------------------- |
+| Timer resolution                       | `timeBeginPeriod` (ignored while minimized on Windows 11, unless `latency_critical`) | already precise                                                        | already precise (50 us slack) | already precise                        |
+| `latency_critical`                     | process power throttling off (high QoS, timer resolution honored)                    | `NSProcessInfo` activity (no App Nap, no timer coalescing), macOS only | -                             | -                                      |
+| `keep_system_awake`, `keep_display_on` | power request                                                                        | `NSProcessInfo` activity, macOS only                                   | -                             | - (window flag, engine UI layer)       |
+| Performance session                    | -                                                                                    | -                                                                      | -                             | `APerformanceHint` (API 33)            |
+| Thermal level, watch                   | -                                                                                    | thermal pressure (`notify`)                                            | -                             | `AThermal` (API 30)                    |
+| Thermal headroom                       | -                                                                                    | -                                                                      | -                             | `AThermal_getThermalHeadroom` (API 31) |
+
+osprim only uses native C interfaces (including libandroid, `notify` and Foundation's process APIs through the Objective-C runtime). Anything that needs a window, a view, an Activity or JNI belongs to the engine's platform layer.
 
 ## Supported targets
 
@@ -135,7 +167,7 @@ Desktop Linux usually refuses unprivileged users any decrease of the nice value:
 | Android 8.0+ (API 26) | arm64-v8a, x86_64 | NDK Clang      | build, tests on the x86_64 emulator |
 | iOS 17.4+             | arm64             | Apple Clang    | build                               |
 
-64-bit only. The Apple minimums come from `os_sync_wait_on_address` (a build for an older deployment target stops with an error). On Windows, osprim links `synchronization.lib`. Consoles will follow when their SDKs are available.
+64-bit only. The Apple minimums come from `os_sync_wait_on_address` (a build for an older deployment target stops with an error). On Windows, osprim links `synchronization.lib` and `winmm.lib`; on Apple, Foundation and the Objective-C runtime; on Android, libandroid is loaded at run time.
 
 ## Building
 
