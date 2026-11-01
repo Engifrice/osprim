@@ -28,6 +28,7 @@ add_executable(osprim_tests
   test_wait.cpp
   test_thread.cpp
   test_power.cpp
+  test_topology.cpp
   test_macros.cpp
 )
 target_link_libraries(osprim_tests PRIVATE osprim::osprim doctest::doctest Threads::Threads)
