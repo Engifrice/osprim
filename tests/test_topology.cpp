@@ -328,7 +328,18 @@ namespace
 
     fake_root()
     {
-      snprintf(path, sizeof(path), "%s/osprim_topology_XXXXXX", P_tmpdir);
+      // TMPDIR wins when set. Otherwise: Android has no /tmp (P_tmpdir);
+      // what adb shell can write to is /data/local/tmp.
+      const char* dir = getenv("TMPDIR");
+      if (dir == nullptr || *dir == '\0')
+      {
+  #if defined(__ANDROID__)
+        dir = "/data/local/tmp";
+  #else
+        dir = P_tmpdir;
+  #endif
+      }
+      snprintf(path, sizeof(path), "%s/osprim_topology_XXXXXX", dir);
       REQUIRE(mkdtemp(path) != nullptr);
     }
 
