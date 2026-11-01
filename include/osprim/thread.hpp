@@ -144,10 +144,14 @@ namespace osprim
     ///
     /// | class       | Windows        | Apple QoS        | Linux/Android nice |
     /// |-------------|----------------|------------------|--------------------|
-    /// | BACKGROUND  | LOWEST         | BACKGROUND       | 10                 |
+    /// | BACKGROUND  | LOWEST, EcoQoS | BACKGROUND       | 10                 |
     /// | UTILITY     | BELOW_NORMAL   | UTILITY          | 5                  |
     /// | NORMAL      | NORMAL         | USER_INITIATED   | 0                  |
     /// | INTERACTIVE | ABOVE_NORMAL   | USER_INTERACTIVE | -6                 |
+    ///
+    /// On Windows, BACKGROUND also sets EcoQoS (efficient cores, lowest
+    /// frequency), as the Apple QoS class does; the other classes leave
+    /// that to the system.
     ///
     /// Desktop Linux refuses any decrease of the nice value to unprivileged
     /// users (RLIMIT_NICE): INTERACTIVE, and NORMAL after a lower class.
