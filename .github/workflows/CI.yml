@@ -243,6 +243,33 @@ jobs:
       - name: Test
         run: ./build/tests/osprim_tests
 
+  # The CPU budget under real restrictions: an affinity (taskset), a cpuset
+  # and a CPU quota (Docker). The tests compare with what each step sets.
+  cpu-limits:
+    name: linux-x64-gcc (CPU limits)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Build
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_COMPILER=g++ -DOSPRIM_WARNINGS_AS_ERRORS=ON
+          cmake --build build --parallel
+
+      - name: Test under taskset (1 CPU)
+        run: OSPRIM_TEST_EXPECT_CPUS=1 taskset -c 0 ./build/tests/osprim_tests
+
+      - name: Test in Docker with --cpuset-cpus=0 (1 CPU)
+        run: >
+          docker run --rm --cpuset-cpus=0 -e OSPRIM_TEST_EXPECT_CPUS=1
+          -v "$PWD/build/tests:/t" ubuntu:24.04 /t/osprim_tests
+
+      - name: Test in Docker with --cpus=1.5 (quota)
+        run: >
+          docker run --rm --cpus=1.5 -e OSPRIM_TEST_EXPECT_QUOTA=1500
+          -v "$PWD/build/tests:/t" ubuntu:24.04 /t/osprim_tests
+
   # The package installs, and a consumer finds it with find_package()
   install:
     name: linux-x64-gcc (install)
