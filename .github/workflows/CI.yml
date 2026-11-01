@@ -1,0 +1,345 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Runner images are pinned: a moving "-latest" label would change the
+# toolchains (and the results) without any change in this repository.
+# Every configuration is built and tested in Debug and Release: Debug
+# compiles handle tracking in (OSPRIM_TRACKING=AUTO), Release does not.
+# Warnings are errors everywhere.
+
+jobs:
+  unix:
+    name: ${{ matrix.config.name }} (${{ matrix.build_type }})
+    runs-on: ${{ matrix.config.os }}
+    strategy:
+      fail-fast: false
+      # Two axes, so every configuration runs in both build types. (Listing
+      # the configurations under "include" next to build_type would not:
+      # each entry would overwrite the previous one in the same two jobs.)
+      matrix:
+        build_type: [Debug, Release]
+        config:
+          # x86-64: invariant TSC (or the awake fallback in VMs that hide it)
+          - { name: linux-x64-gcc,     os: ubuntu-24.04,     cc: gcc,   cxx: g++ }
+          - { name: linux-x64-clang,   os: ubuntu-24.04,     cc: clang, cxx: clang++ }
+          # arm64: CNTVCT_EL0 with CNTFRQ_EL0
+          - { name: linux-arm64-gcc,   os: ubuntu-24.04-arm, cc: gcc,   cxx: g++ }
+          - { name: linux-arm64-clang, os: ubuntu-24.04-arm, cc: clang, cxx: clang++ }
+          # Apple silicon: mach timebase 125/3, CNTVCT_EL0 at 24 MHz
+          - { name: macos-arm64-appleclang, os: macos-15,       cc: clang, cxx: clang++ }
+          # Intel Mac: mach timebase 1/1, TSC
+          - { name: macos-x64-appleclang,   os: macos-15-intel, cc: clang, cxx: clang++ }
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install packages
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends cmake clang
+
+      - name: Versions
+        run: |
+          cmake --version
+          ${{ matrix.config.cxx }} --version
+
+      - name: Configure
+        run: >
+          cmake -S . -B build
+          -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
+          -DCMAKE_C_COMPILER=${{ matrix.config.cc }}
+          -DCMAKE_CXX_COMPILER=${{ matrix.config.cxx }}
+          -DOSPRIM_WARNINGS_AS_ERRORS=ON
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      - name: Test
+        run: ./build/tests/osprim_tests
+
+  windows:
+    name: ${{ matrix.config.name }} (${{ matrix.build_type }})
+    runs-on: ${{ matrix.config.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        build_type: [Debug, Release]
+        config:
+          - { name: windows-x64-msvc,       os: windows-2025,   vcvars: x64,   compiler: cl,       llvm: x64 }
+          - { name: windows-x64-clang-cl,   os: windows-2025,   vcvars: x64,   compiler: clang-cl, llvm: x64 }
+          - { name: windows-arm64-msvc,     os: windows-11-arm, vcvars: arm64, compiler: cl,       llvm: ARM64 }
+          - { name: windows-arm64-clang-cl, os: windows-11-arm, vcvars: arm64, compiler: clang-cl, llvm: ARM64 }
+
+    steps:
+      - uses: actions/checkout@v5
+
+      # One step, because the developer environment set by vcvarsall only
+      # lives in this cmd process. clang-cl comes from the LLVM bundled with
+      # Visual Studio, so it matches the installed MSVC libraries.
+      - name: Configure and build
+        shell: cmd
+        run: |
+          for /f "usebackq delims=" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -property installationPath`) do set "VSPATH=%%i"
+          if not defined VSPATH (echo Visual Studio not found & exit /b 1)
+          echo Visual Studio: %VSPATH%
+          call "%VSPATH%\VC\Auxiliary\Build\vcvarsall.bat" ${{ matrix.config.vcvars }} || exit /b 1
+          if "${{ matrix.config.compiler }}"=="clang-cl" set "PATH=%VSPATH%\VC\Tools\Llvm\${{ matrix.config.llvm }}\bin;%PATH%"
+          where ${{ matrix.config.compiler }} || exit /b 1
+          where ninja || exit /b 1
+          cmake --version || exit /b 1
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} -DCMAKE_C_COMPILER=${{ matrix.config.compiler }} -DCMAKE_CXX_COMPILER=${{ matrix.config.compiler }} -DOSPRIM_WARNINGS_AS_ERRORS=ON || exit /b 1
+          cmake --build build --parallel || exit /b 1
+
+      - name: Test
+        run: build\tests\osprim_tests.exe
+
+  #####################################################################
+  # Sanitizers
+  #
+  # Tracking is forced on, so that the registry (locking, growth,
+  # allocation hooks) runs under every sanitizer.
+  #####################################################################
+
+  asan-ubsan:
+    name: ${{ matrix.name }} (asan+ubsan)
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: linux-x64-gcc,     os: ubuntu-24.04,     cc: gcc,   cxx: g++,     leaks: 1 }
+          - { name: linux-x64-clang,   os: ubuntu-24.04,     cc: clang, cxx: clang++, leaks: 1 }
+          - { name: linux-arm64-gcc,   os: ubuntu-24.04-arm, cc: gcc,   cxx: g++,     leaks: 1 }
+          - { name: linux-arm64-clang, os: ubuntu-24.04-arm, cc: clang, cxx: clang++, leaks: 1 }
+          # LeakSanitizer is not available on Apple arm64
+          - { name: macos-arm64-appleclang, os: macos-15,    cc: clang, cxx: clang++, leaks: 0 }
+    env:
+      CXXFLAGS: -fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer
+      LDFLAGS: -fsanitize=address,undefined
+      ASAN_OPTIONS: detect_leaks=${{ matrix.leaks }}:detect_stack_use_after_return=1:check_initialization_order=1:strict_init_order=1
+      UBSAN_OPTIONS: print_stacktrace=1
+
+    steps:
+      - uses: actions/checkout@v5
+
+      # libclang-rt-18-dev holds clang's sanitizer runtimes (clang 18 is
+      # the Ubuntu 24.04 default); GCC's come with the compiler.
+      - name: Install packages
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends cmake clang libclang-rt-18-dev
+
+      # Older sanitizer runtimes cannot map their shadow memory with the
+      # high mmap randomization of recent kernels.
+      - name: Lower mmap randomization
+        if: runner.os == 'Linux'
+        run: sudo sysctl -w vm.mmap_rnd_bits=28 || true
+
+      - name: Configure
+        run: >
+          cmake -S . -B build
+          -DCMAKE_BUILD_TYPE=RelWithDebInfo
+          -DCMAKE_C_COMPILER=${{ matrix.cc }}
+          -DCMAKE_CXX_COMPILER=${{ matrix.cxx }}
+          -DOSPRIM_TRACKING=ON
+          -DOSPRIM_WARNINGS_AS_ERRORS=ON
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      - name: Test
+        run: ./build/tests/osprim_tests
+
+  tsan:
+    name: ${{ matrix.name }} (tsan)
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: linux-x64-gcc,     os: ubuntu-24.04,     cc: gcc,   cxx: g++ }
+          - { name: linux-x64-clang,   os: ubuntu-24.04,     cc: clang, cxx: clang++ }
+          - { name: linux-arm64-clang, os: ubuntu-24.04-arm, cc: clang, cxx: clang++ }
+          - { name: macos-arm64-appleclang, os: macos-15,    cc: clang, cxx: clang++ }
+    env:
+      CXXFLAGS: -fsanitize=thread -fno-omit-frame-pointer
+      LDFLAGS: -fsanitize=thread
+      TSAN_OPTIONS: halt_on_error=1:second_deadlock_stack=1
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install packages
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends cmake clang libclang-rt-18-dev
+
+      - name: Lower mmap randomization
+        if: runner.os == 'Linux'
+        run: sudo sysctl -w vm.mmap_rnd_bits=28 || true
+
+      - name: Configure
+        run: >
+          cmake -S . -B build
+          -DCMAKE_BUILD_TYPE=RelWithDebInfo
+          -DCMAKE_C_COMPILER=${{ matrix.cc }}
+          -DCMAKE_CXX_COMPILER=${{ matrix.cxx }}
+          -DOSPRIM_TRACKING=ON
+          -DOSPRIM_WARNINGS_AS_ERRORS=ON
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      - name: Test
+        run: ./build/tests/osprim_tests
+
+  #####################################################################
+  # Configuration
+  #####################################################################
+
+  # OSPRIM_USER_CONFIG replaces OSPRIM_ASSERT in the library and the tests
+  # alike; tests/user_config.hpp counts failures instead of aborting.
+  user-config:
+    name: linux-x64-gcc (user config)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Configure
+        run: >
+          cmake -S . -B build
+          -DCMAKE_BUILD_TYPE=Debug
+          -DCMAKE_CXX_COMPILER=g++
+          -DOSPRIM_USER_CONFIG=${{ github.workspace }}/tests/user_config.hpp
+          -DOSPRIM_WARNINGS_AS_ERRORS=ON
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      - name: Test
+        run: ./build/tests/osprim_tests
+
+  # The package installs, and a consumer finds it with find_package()
+  install:
+    name: linux-x64-gcc (install)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Build and install
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DOSPRIM_BUILD_TESTS=OFF -DCMAKE_INSTALL_PREFIX=${{ runner.temp }}/prefix
+          cmake --build build --parallel
+          cmake --install build
+
+      - name: Consume
+        run: |
+          mkdir consumer
+          cat > consumer/CMakeLists.txt <<'EOF'
+          cmake_minimum_required(VERSION 3.26)
+          project(consumer LANGUAGES CXX)
+          find_package(osprim 0.1 REQUIRED)
+          add_executable(consumer main.cpp)
+          target_link_libraries(consumer PRIVATE osprim::osprim)
+          EOF
+          cat > consumer/main.cpp <<'EOF'
+          #include <osprim/osprim.hpp>
+          int main()
+          {
+            if (!osprim::initialize({}).ok())
+              return 1;
+            const osprim::awake_instant a = osprim::awake_now();
+            const bool ok = osprim::awake_now() >= a;
+            osprim::deinitialize();
+            return ok ? 0 : 1;
+          }
+          EOF
+          cmake -S consumer -B consumer/build -DCMAKE_PREFIX_PATH=${{ runner.temp }}/prefix
+          cmake --build consumer/build
+          ./consumer/build/consumer
+
+  #####################################################################
+  # Mobile
+  #####################################################################
+
+  # Built for both Android ABIs; the x86_64 build runs on an emulator
+  # (bionic, CLOCK_BOOTTIME, a virtualized TSC).
+  android:
+    name: android-${{ matrix.abi }} (${{ matrix.build_type }})
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        abi: [arm64-v8a, x86_64]
+        build_type: [Debug, Release]
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Configure
+        run: >
+          cmake -S . -B build
+          -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
+          -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK_LATEST_HOME/build/cmake/android.toolchain.cmake
+          -DANDROID_ABI=${{ matrix.abi }}
+          -DANDROID_PLATFORM=android-26
+          -DOSPRIM_WARNINGS_AS_ERRORS=ON
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      - name: Enable KVM
+        if: matrix.abi == 'x86_64'
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Test on the emulator
+        if: matrix.abi == 'x86_64'
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          arch: x86_64
+          target: google_apis
+          disable-animations: true
+          script: |
+            adb push build/tests/osprim_tests /data/local/tmp/osprim_tests
+            adb shell chmod 755 /data/local/tmp/osprim_tests
+            adb shell /data/local/tmp/osprim_tests
+
+  # Built only: running needs a device or a signed app bundle.
+  ios:
+    name: ios-arm64 (${{ matrix.build_type }})
+    runs-on: macos-15
+    strategy:
+      fail-fast: false
+      matrix:
+        build_type: [Debug, Release]
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Configure
+        run: >
+          cmake -S . -B build
+          -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
+          -DCMAKE_SYSTEM_NAME=iOS
+          -DCMAKE_OSX_ARCHITECTURES=arm64
+          -DCMAKE_OSX_DEPLOYMENT_TARGET=15.0
+          -DOSPRIM_WARNINGS_AS_ERRORS=ON
+
+      - name: Build
+        run: cmake --build build --parallel
