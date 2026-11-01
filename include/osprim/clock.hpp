@@ -44,17 +44,27 @@ namespace osprim
       /// @brief True if this means "no deadline"
       constexpr bool is_forever() const noexcept { return ns == FOREVER_NS; }
       /// @brief `*this + d` (d may be negative), saturating to forever()
+      /// above and to INT64_MIN below
       constexpr awake_instant after(int64_t d) const noexcept
       {
         if (is_forever() || (d > 0 && d >= FOREVER_NS - ns))
           return forever();
+        if (d < 0 && ns < INT64_MIN - d)
+          return {INT64_MIN};
         return {ns + d};
       }
       /// @brief Signed nanoseconds until this deadline seen from `now`:
-      /// negative if overdue, FOREVER_NS if no deadline
+      /// negative if overdue (saturating at INT64_MIN), FOREVER_NS if no
+      /// deadline. Never FOREVER_NS for a finite deadline.
       constexpr int64_t remaining(awake_instant now) const noexcept
       {
-        return is_forever() ? FOREVER_NS : ns - now.ns;
+        if (is_forever())
+          return FOREVER_NS;
+        if (now.ns > 0 && ns < INT64_MIN + now.ns)
+          return INT64_MIN;
+        if (now.ns < 0 && ns > FOREVER_NS - 1 + now.ns)
+          return FOREVER_NS - 1;
+        return ns - now.ns;
       }
       friend constexpr auto operator<=>(awake_instant, awake_instant) noexcept =
           default;
