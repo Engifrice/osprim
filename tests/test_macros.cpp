@@ -65,6 +65,33 @@ namespace
     for (wait_result w : {wait_result::WAIT_WOKEN, wait_result::WAIT_TIMED_OUT})
       n += static_cast<int>(w);
     n += static_cast<int>(sizeof(wait_word_t));
+    for (thread_state t :
+         {thread_state::THREAD_STATE_STARTING, thread_state::THREAD_STATE_RUNNING,
+          thread_state::THREAD_STATE_EXITED})
+      n += static_cast<int>(t);
+    for (thread_create_result r :
+         {thread_create_result::THREAD_CREATE_OK,
+          thread_create_result::THREAD_CREATE_OUT_OF_RESOURCES,
+          thread_create_result::THREAD_CREATE_SYSTEM_ERROR})
+      n += static_cast<int>(r);
+    for (thread_join_result r :
+         {thread_join_result::THREAD_JOIN_OK,
+          thread_join_result::THREAD_JOIN_TIMED_OUT})
+      n += static_cast<int>(r);
+    for (set_thread_name_result r :
+         {set_thread_name_result::SET_THREAD_NAME_OK,
+          set_thread_name_result::SET_THREAD_NAME_SYSTEM_ERROR})
+      n += static_cast<int>(r);
+    for (thread_class c :
+         {thread_class::THREAD_CLASS_BACKGROUND, thread_class::THREAD_CLASS_UTILITY,
+          thread_class::THREAD_CLASS_NORMAL, thread_class::THREAD_CLASS_INTERACTIVE})
+      n += static_cast<int>(c);
+    for (set_thread_class_result r :
+         {set_thread_class_result::SET_THREAD_CLASS_OK,
+          set_thread_class_result::SET_THREAD_CLASS_DENIED,
+          set_thread_class_result::SET_THREAD_CLASS_SYSTEM_ERROR})
+      n += static_cast<int>(r);
+    n += static_cast<int>(THREAD_NAME_MAX);
     n += FOREVER_NS == awake_instant::forever().ns;
     return n;
   }
