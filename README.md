@@ -6,13 +6,15 @@ osprim provides **mechanism, not policy**: the lowest-level building blocks, wit
 ## Status:
 [![CI](https://github.com/Engifrice/osprim/actions/workflows/CI.yml/badge.svg?branch=main&event=push)](https://github.com/Engifrice/osprim/actions/workflows/CI.yml)
 
-| Module | Header              | Contents                                                                                              |
-| ------ | ------------------- | ----------------------------------------------------------------------------------------------------- |
-| Base   | `osprim/base.hpp`   | Library lifetime, results, native errors, diagnostics (leak and misuse reports)                       |
-| Clock  | `osprim/clock.hpp`  | Awake, continuous and wall clocks; raw tick counter                                                   |
-| Wait   | `osprim/wait.hpp`   | Wait on an address until woken or an awake deadline; wake one or all                                  |
-| Thread | `osprim/thread.hpp` | Create, join with a deadline, detach; ids, names, scheduling classes; yield, spin hint, precise sleep |
-| Power  | `osprim/power.hpp`  | Timer resolution, process activity, performance sessions, thermal state                               |
+| Module   | Header                | Contents                                                                                              |
+| -------- | --------------------- | ----------------------------------------------------------------------------------------------------- |
+| Base     | `osprim/base.hpp`     | Library lifetime, results, native errors, diagnostics (leak and misuse reports)                       |
+| Clock    | `osprim/clock.hpp`    | Awake, continuous and wall clocks; raw tick counter                                                   |
+| Wait     | `osprim/wait.hpp`     | Wait on an address until woken or an awake deadline; wake one or all                                  |
+| Thread   | `osprim/thread.hpp`   | Create, join with a deadline, detach; ids, names, scheduling classes; yield, spin hint, precise sleep |
+| Power    | `osprim/power.hpp`    | Timer resolution, process activity, performance sessions, thermal state                               |
+| Topology | `osprim/topology.hpp` | CPU budget, core classes and caches, thread affinity, cache line constants                            |
+| Platform | `osprim/platform.hpp` | `OSPRIM_OS_*` and `OSPRIM_ARCH_*` macros                                                              |
 
 `osprim/osprim.hpp` includes everything.
 
@@ -152,10 +154,55 @@ The operating system constantly trades speed for battery and heat, and guesses w
 | `latency_critical`                     | process power throttling off (high QoS, timer resolution honored)                    | `NSProcessInfo` activity (no App Nap, no timer coalescing), macOS only | -                             | -                                      |
 | `keep_system_awake`, `keep_display_on` | power request                                                                        | `NSProcessInfo` activity, macOS only                                   | -                             | - (window flag, engine UI layer)       |
 | Performance session                    | -                                                                                    | -                                                                      | -                             | `APerformanceHint` (API 33)            |
-| Thermal level, watch                   | -                                                                                    | thermal pressure (`notify`)                                            | -                             | `AThermal` (API 30)                    |
+| Thermal level, watch                   | -                                                                                    | `NSProcessInfo` thermal state                                          | -                             | `AThermal` (API 30)                    |
 | Thermal headroom                       | -                                                                                    | -                                                                      | -                             | `AThermal_getThermalHeadroom` (API 31) |
 
-osprim only uses native C interfaces (including libandroid, `notify` and Foundation's process APIs through the Objective-C runtime). Anything that needs a window, a view, an Activity or JNI belongs to the engine's platform layer.
+osprim only uses native C interfaces (including libandroid, and Foundation's process APIs through the Objective-C runtime).
+
+## Topology
+
+| Your goal                                 | Use                                                                          |
+| ----------------------------------------- | ---------------------------------------------------------------------------- |
+| How many worker threads to create         | `get_cpu_budget()`, then `parallelism_full()` or `parallelism_unthrottled()` |
+| Which cores are fast, which are efficient | `topology_query()`                                                           |
+| Cache sizes, and which CPUs share them    | `topology_query()`                                                           |
+| Padding against false sharing             | `FALSE_SHARING_SIZE`                                                         |
+| Keep a thread on fast or efficient cores  | `set_current_thread_class()` first; then preferred, then allowed CPUs        |
+
+**The budget** says what a thread created now by the caller may use, which is often less than the machine has:
+- *Where it may run:* affinity (`taskset`, `start /affinity`), container cpusets, Android moving background apps to a few efficient cores, Windows CPU sets reserved for other processes.
+- *How much CPU time:* container quotas (`--cpus=1.5`: 150 ms per 100 ms) and Windows job rate caps. Exceeding a quota freezes the whole process until the next period, so a pool sized to the machine stalls.
+
+New threads inherit their creator's CPUs on Linux and Android, and the process's on Windows: the budget follows that rule, so call it from the thread that creates the pool. It is cheap, and it changes at run time with no OS notification: query it every few seconds and on lifecycle events (Android resume).
+
+| `cpu_budget`      | Linux, Android                                                     | Windows                                              | Apple          |
+| ----------------- | ------------------------------------------------------------------ | ---------------------------------------------------- | -------------- |
+| `available_cpus`  | calling thread's affinity                                          | process affinity, minus CPU sets reserved for others | `hw.activecpu` |
+| `quota_millicpus` | cgroup v2 `cpu.max` / v1 `cfs_quota`, tightest along the hierarchy | job object CPU rate cap                              | none           |
+
+`parallelism_full()` rounds the quota up (uses all of it, may be throttled at full load, as Go and .NET do); `parallelism_unthrottled()` rounds it down (at least 1).
+
+**The topology** is a snapshot: costly, never taken by `initialize()`, cached by the caller. No allocation: the caller passes the array (a first call with none returns the count). Core classes are ordered fastest first, and `class_source` says how far to trust them:
+
+|                | Classes from                                                                                                                                        | CPU entries                           |
+| -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------- |
+| Windows        | CPU sets `EfficiencyClass` (`REPORTED`)                                                                                                             | yes (CPU set ids)                     |
+| Linux, Android | `cpu_capacity` if its values differ, else Intel's `cpu_core`/`cpu_atom` lists (`REPORTED`), else maximum frequencies 15% apart or more (`INFERRED`) | yes (CPU numbers)                     |
+| Apple          | performance levels, `hw.perflevelN` (`REPORTED`)                                                                                                    | none: Apple exposes no CPU identities |
+
+**Affinity** overrides the OS scheduler and its hardware hints (Intel Thread Director, Android's placement). Intel and Google both advise against it: prefer thread classes, then soft preferences, and restrict hard only when measured to help, once, at thread start.
+
+|                | `set_current_thread_preferred_cpus` (soft) | `set_current_thread_allowed_cpus` (hard) |
+| -------------- | ------------------------------------------ | ---------------------------------------- |
+| Windows        | CPU sets                                   | group affinity (one processor group)     |
+| Linux, Android | `UNSUPPORTED`                              | `sched_setaffinity`                      |
+| Apple          | `UNSUPPORTED`                              | `UNSUPPORTED`                            |
+
+|               | `CACHE_LINE_SIZE` | `FALSE_SHARING_SIZE`                           |
+| ------------- | ----------------- | ---------------------------------------------- |
+| x86-64        | 64                | 128 (the L2 prefetcher fetches pairs of lines) |
+| arm64, Apple  | 128               | 128                                            |
+| arm64, others | 64                | 64                                             |
 
 ## Supported targets
 
