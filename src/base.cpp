@@ -193,6 +193,12 @@ namespace osprim
         return g_lib.initialized;
       }
 
+      uint64_t next_handle_id() noexcept
+      {
+        static std::atomic<uint64_t> next{1};
+        return next.fetch_add(1, std::memory_order_relaxed);
+      }
+
       void* allocate(size_t size, size_t align) noexcept
       {
         return g_lib.alloc.alloc_fn(g_lib.alloc.user, size, align);
@@ -310,6 +316,8 @@ namespace osprim
         return clocks;
       }
 
+      detail::power_initialize();
+
       g_lib.initialized = true;
       return {};
     }
@@ -321,6 +329,7 @@ namespace osprim
       if (g_lib.tracking)
         registry_deinitialize();
 #endif
+      detail::power_deinitialize();
       g_lib = library_state{};
     }
   } // namespace v0_1
