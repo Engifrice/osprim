@@ -35,16 +35,16 @@ endif()
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Android")
   set(_osprim_platform 2)
-  set(_osprim_platform_sources src/clock_linux.cpp src/wait_linux.cpp src/thread_posix.cpp)
+  set(_osprim_platform_sources src/clock_linux.cpp src/wait_linux.cpp src/thread_posix.cpp src/power_linux.cpp)
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
   set(_osprim_platform 1)
-  set(_osprim_platform_sources src/clock_linux.cpp src/wait_linux.cpp src/thread_posix.cpp)
+  set(_osprim_platform_sources src/clock_linux.cpp src/wait_linux.cpp src/thread_posix.cpp src/power_linux.cpp)
 elseif(WIN32)
   set(_osprim_platform 3)
-  set(_osprim_platform_sources src/clock_windows.cpp src/wait_windows.cpp src/thread_windows.cpp)
+  set(_osprim_platform_sources src/clock_windows.cpp src/wait_windows.cpp src/thread_windows.cpp src/power_windows.cpp)
 elseif(APPLE)
   set(_osprim_platform 4)
-  set(_osprim_platform_sources src/clock_apple.cpp src/wait_apple.cpp src/thread_posix.cpp)
+  set(_osprim_platform_sources src/clock_apple.cpp src/wait_apple.cpp src/thread_posix.cpp src/power_apple.cpp)
 else()
   message(FATAL_ERROR "osprim: unsupported system '${CMAKE_SYSTEM_NAME}'")
 endif()
@@ -60,6 +60,7 @@ add_library(osprim STATIC
   include/osprim/clock.hpp
   include/osprim/wait.hpp
   include/osprim/thread.hpp
+  include/osprim/power.hpp
   include/osprim/osprim.hpp
   src/platform.hpp
   src/internal.hpp
@@ -67,6 +68,7 @@ add_library(osprim STATIC
   src/base.cpp
   src/clock.cpp
   src/thread.cpp
+  src/power.cpp
   ${_osprim_platform_sources}
 )
 add_library(osprim::osprim ALIAS osprim)
@@ -81,8 +83,16 @@ target_include_directories(osprim
 target_compile_features(osprim PUBLIC cxx_std_20)
 target_compile_definitions(osprim PRIVATE OSPRIM_CMAKE_PLATFORM=${_osprim_platform})
 if(WIN32)
-  # WaitOnAddress, WakeByAddressSingle, WakeByAddressAll
-  target_link_libraries(osprim PUBLIC synchronization)
+  # synchronization: WaitOnAddress, WakeByAddress*. winmm: timeBeginPeriod.
+  target_link_libraries(osprim PUBLIC synchronization winmm)
+elseif(APPLE)
+  # Foundation and the Objective-C runtime: NSProcessInfo activities.
+  # Blocks: notify_register_dispatch handlers.
+  target_link_libraries(osprim PUBLIC "-framework Foundation" objc)
+  target_compile_options(osprim PRIVATE -fblocks)
+elseif(CMAKE_SYSTEM_NAME STREQUAL "Android")
+  # dlopen of libandroid.so (performance hints, thermal)
+  target_link_libraries(osprim PUBLIC ${CMAKE_DL_LIBS})
 endif()
 
 # Handle tracking changes the library's behavior, not its interface, but
