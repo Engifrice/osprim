@@ -35,16 +35,16 @@ endif()
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Android")
   set(_osprim_platform 2)
-  set(_osprim_platform_sources src/clock_linux.cpp src/wait_linux.cpp src/thread_posix.cpp src/power_linux.cpp)
+  set(_osprim_platform_sources src/clock_linux.cpp src/wait_linux.cpp src/thread_posix.cpp src/power_linux.cpp src/topology_linux.cpp)
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
   set(_osprim_platform 1)
-  set(_osprim_platform_sources src/clock_linux.cpp src/wait_linux.cpp src/thread_posix.cpp src/power_linux.cpp)
+  set(_osprim_platform_sources src/clock_linux.cpp src/wait_linux.cpp src/thread_posix.cpp src/power_linux.cpp src/topology_linux.cpp)
 elseif(WIN32)
   set(_osprim_platform 3)
-  set(_osprim_platform_sources src/clock_windows.cpp src/wait_windows.cpp src/thread_windows.cpp src/power_windows.cpp)
+  set(_osprim_platform_sources src/clock_windows.cpp src/wait_windows.cpp src/thread_windows.cpp src/power_windows.cpp src/topology_windows.cpp)
 elseif(APPLE)
   set(_osprim_platform 4)
-  set(_osprim_platform_sources src/clock_apple.cpp src/wait_apple.cpp src/thread_posix.cpp src/power_apple.cpp)
+  set(_osprim_platform_sources src/clock_apple.cpp src/wait_apple.cpp src/thread_posix.cpp src/power_apple.cpp src/topology_apple.cpp)
 else()
   message(FATAL_ERROR "osprim: unsupported system '${CMAKE_SYSTEM_NAME}'")
 endif()
@@ -57,10 +57,12 @@ message(STATUS "osprim: ${CMAKE_SYSTEM_NAME}, sources: ${_osprim_platform_source
 
 add_library(osprim STATIC
   include/osprim/base.hpp
+  include/osprim/platform.hpp
   include/osprim/clock.hpp
   include/osprim/wait.hpp
   include/osprim/thread.hpp
   include/osprim/power.hpp
+  include/osprim/topology.hpp
   include/osprim/osprim.hpp
   src/platform.hpp
   src/internal.hpp
@@ -69,6 +71,7 @@ add_library(osprim STATIC
   src/clock.cpp
   src/thread.cpp
   src/power.cpp
+  src/topology.cpp
   ${_osprim_platform_sources}
 )
 add_library(osprim::osprim ALIAS osprim)
