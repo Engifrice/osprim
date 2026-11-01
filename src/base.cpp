@@ -317,6 +317,7 @@ namespace osprim
       }
 
       detail::power_initialize();
+      detail::topology_initialize();
 
       g_lib.initialized = true;
       return {};
