@@ -12,6 +12,7 @@
 
 #include <osprim/base.hpp>
 #include <osprim/clock.hpp>
+#include <osprim/wait.hpp>
 
 #include <stddef.h>
 #include <stdint.h>
@@ -157,6 +158,16 @@ namespace osprim
         __asm__ __volatile__("mrs %0, cntvct_el0" : "=r"(v));
         return v;
 #endif
+      }
+
+      /*****************************/
+      /* WAIT                      */
+      /*****************************/
+
+      /// @brief The storage of a wait word, as the OS primitives take it.
+      inline wait_word_t* wait_address(const std::atomic<wait_word_t>& word) noexcept
+      {
+        return const_cast<wait_word_t*>(reinterpret_cast<const wait_word_t*>(&word));
       }
 
       /*****************************/
