@@ -6,10 +6,11 @@ osprim provides **mechanism, not policy**: the lowest-level building blocks, wit
 ## Status:
 [![CI](https://github.com/Engifrice/osprim/actions/workflows/CI.yml/badge.svg?branch=main&event=push)](https://github.com/Engifrice/osprim/actions/workflows/CI.yml)
 
-| Module | Header             | Contents                                                                        |
-| ------ | ------------------ | ------------------------------------------------------------------------------- |
-| Base   | `osprim/base.hpp`  | Library lifetime, results, native errors, diagnostics (leak and misuse reports) |
-| Clock  | `osprim/clock.hpp` | Awake, continuous and wall clocks; raw tick counter                             |
+| Module | Header | Contents |
+|---|---|---|
+| Base | `osprim/base.hpp` | Library lifetime, results, native errors, diagnostics (leak and misuse reports) |
+| Clock | `osprim/clock.hpp` | Awake, continuous and wall clocks; raw tick counter |
+| Wait | `osprim/wait.hpp` | Wait on an address until woken or an awake deadline; wake one or all |
 
 `osprim/osprim.hpp` includes everything.
 
@@ -24,12 +25,12 @@ osprim provides **mechanism, not policy**: the lowest-level building blocks, wit
 
 ## Clocks
 
-| Clock      | Meaning                                                         | Linux, Android     | Windows                             | Apple                  |
-| ---------- | --------------------------------------------------------------- | ------------------ | ----------------------------------- | ---------------------- |
-| awake      | Monotonic, stops during suspend. Every osprim deadline uses it. | `CLOCK_MONOTONIC`  | `QueryUnbiasedInterruptTimePrecise` | `mach_absolute_time`   |
-| continuous | Monotonic, counts suspend                                       | `CLOCK_BOOTTIME`   | `QueryInterruptTimePrecise`         | `mach_continuous_time` |
-| wall       | UTC since 1970, can jump                                        | `CLOCK_REALTIME`   | `GetSystemTimePreciseAsFileTime`    | `CLOCK_REALTIME`       |
-| ticks      | Cheapest counter, for measurement only                          | TSC / `CNTVCT_EL0` | TSC / `CNTVCT_EL0`                  | TSC / `CNTVCT_EL0`     |
+| Clock | Meaning | Linux, Android | Windows | Apple |
+|---|---|---|---|---|
+| awake | Monotonic, stops during suspend. Every osprim deadline uses it. | `CLOCK_MONOTONIC` | `QueryUnbiasedInterruptTimePrecise` | `mach_absolute_time` |
+| continuous | Monotonic, counts suspend | `CLOCK_BOOTTIME` | `QueryInterruptTimePrecise` | `mach_continuous_time` |
+| wall | UTC since 1970, can jump | `CLOCK_REALTIME` | `GetSystemTimePreciseAsFileTime` | `CLOCK_REALTIME` |
+| ticks | Cheapest counter, for measurement only | TSC / `CNTVCT_EL0` | TSC / `CNTVCT_EL0` | TSC / `CNTVCT_EL0` |
 
 Times and durations are `int64_t` nanoseconds (`FOREVER_NS` = `INT64_MAX` means no deadline). Each clock has its own instant type, so they cannot be mixed up.
 
@@ -54,17 +55,45 @@ int main()
 }
 ```
 
+## Wait
+
+`wait(word, expected, deadline)` blocks while a `std::atomic<wait_word_t>` holds `expected`, until `wake_one()`/`wake_all()`, the deadline, or a spurious return. It is the futex-style primitive that locks, thread pools and run loops are built on.
+
+- It does not loop: callers re-check their own condition after every return, which they must do anyway.
+- `WAIT_TIMED_OUT` guarantees that the awake deadline has passed; it is never reported early on any platform. Timeouts can be late (Linux timer slack, Apple timer coalescing, the Windows timer resolution): reducing that is a thread or power setting.
+- No memory ordering: the caller's loads and stores carry it. Words are private to the process.
+
+| Platform | Wait | Wake |
+|---|---|---|
+| Linux, Android | `FUTEX_WAIT_BITSET_PRIVATE` (absolute `CLOCK_MONOTONIC`) | `FUTEX_WAKE_PRIVATE` |
+| Windows | `WaitOnAddress` (relative milliseconds, rounded up) | `WakeByAddressSingle` / `WakeByAddressAll` |
+| Apple | `os_sync_wait_on_address_with_deadline` (`OS_CLOCK_MACH_ABSOLUTE_TIME`) | `os_sync_wake_by_address_any` / `_all` |
+
+```cpp
+std::atomic<osprim::wait_word_t> ready{0};
+
+// waiter
+const osprim::awake_instant deadline = osprim::deadline_after(5'000'000'000);
+while (ready.load(std::memory_order_acquire) == 0)
+    if (osprim::wait(ready, 0, deadline) == osprim::wait_result::WAIT_TIMED_OUT)
+        break;
+
+// waker
+ready.store(1, std::memory_order_release);
+osprim::wake_one(ready);
+```
+
 ## Supported targets
 
-| Platform | Architectures     | Toolchains     | CI                                  |
-| -------- | ----------------- | -------------- | ----------------------------------- |
-| Linux    | x86-64, arm64     | GCC, Clang     | tests, ASan+UBSan, TSan             |
-| Windows  | x86-64, arm64     | MSVC, clang-cl | tests                               |
-| macOS    | arm64, x86-64     | Apple Clang    | tests, ASan+UBSan, TSan (arm64)     |
-| Android  | arm64-v8a, x86_64 | NDK Clang      | build, tests on the x86_64 emulator |
-| iOS      | arm64             | Apple Clang    | build                               |
+| Platform | Architectures | Toolchains | CI |
+|---|---|---|---|
+| Linux | x86-64, arm64 | GCC, Clang | tests, ASan+UBSan, TSan |
+| Windows | x86-64, arm64 | MSVC, clang-cl | tests |
+| macOS 14.4+ | arm64, x86-64 | Apple Clang | tests, ASan+UBSan, TSan (arm64) |
+| Android 8.0+ (API 26) | arm64-v8a, x86_64 | NDK Clang | build, tests on the x86_64 emulator |
+| iOS 17.4+ | arm64 | Apple Clang | build |
 
-64-bit only.
+64-bit only. The Apple minimums come from `os_sync_wait_on_address` (a build for an older deployment target stops with an error). On Windows, osprim links `synchronization.lib`. Consoles will follow when their SDKs are available.
 
 ## Building
 
@@ -74,13 +103,13 @@ cmake --build build
 ./build/tests/osprim_tests
 ```
 
-| Option                      | Default        | Effect                                                                                          |
-| --------------------------- | -------------- | ----------------------------------------------------------------------------------------------- |
-| `OSPRIM_BUILD_TESTS`        | top-level only | Build the tests (fetches doctest)                                                               |
-| `OSPRIM_INSTALL`            | top-level only | Generate the install target and the `osprim` CMake package                                      |
-| `OSPRIM_TRACKING`           | `AUTO`         | Compile handle tracking in: `AUTO` (Debug only), `ON`, `OFF`                                    |
-| `OSPRIM_USER_CONFIG`        | empty          | Path of a header included first by every osprim header, for example to override `OSPRIM_ASSERT` |
-| `OSPRIM_WARNINGS_AS_ERRORS` | `OFF`          | `-Werror` / `/WX` (on in CI)                                                                    |
+| Option | Default | Effect |
+|---|---|---|
+| `OSPRIM_BUILD_TESTS` | top-level only | Build the tests (fetches doctest) |
+| `OSPRIM_INSTALL` | top-level only | Generate the install target and the `osprim` CMake package |
+| `OSPRIM_TRACKING` | `AUTO` | Compile handle tracking in: `AUTO` (Debug only), `ON`, `OFF` |
+| `OSPRIM_USER_CONFIG` | empty | Path of a header included first by every osprim header, for example to override `OSPRIM_ASSERT` |
+| `OSPRIM_WARNINGS_AS_ERRORS` | `OFF` | `-Werror` / `/WX` (on in CI) |
 
 As a subproject:
 
