@@ -25,6 +25,7 @@ add_executable(osprim_tests
   user_config.hpp
   test_base.cpp
   test_clock.cpp
+  test_wait.cpp
   test_macros.cpp
 )
 target_link_libraries(osprim_tests PRIVATE osprim::osprim doctest::doctest Threads::Threads)

@@ -62,6 +62,9 @@ namespace
          {tick_source::TICK_SOURCE_AWAKE, tick_source::TICK_SOURCE_X86_TSC,
           tick_source::TICK_SOURCE_ARM64_CNTVCT})
       n += static_cast<int>(t);
+    for (wait_result w : {wait_result::WAIT_WOKEN, wait_result::WAIT_TIMED_OUT})
+      n += static_cast<int>(w);
+    n += static_cast<int>(sizeof(wait_word_t));
     n += FOREVER_NS == awake_instant::forever().ns;
     return n;
   }

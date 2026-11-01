@@ -88,8 +88,26 @@ static_assert(awake_instant{0}.after(FOREVER_NS - 1).ns == FOREVER_NS - 1);
 static_assert(awake_instant::forever().after(-5).is_forever());
 static_assert(awake_instant::forever().after(5).is_forever());
 
-// remaining(): signed, FOREVER_NS without deadline
+// after(): saturates below too
+static_assert(awake_instant{-10}.after(INT64_MIN).ns == INT64_MIN);
+static_assert(awake_instant{INT64_MIN}.after(-1).ns == INT64_MIN);
+static_assert(awake_instant{-10}.after(INT64_MIN + 10).ns == INT64_MIN);
+static_assert(awake_instant{-10}.after(INT64_MIN + 11).ns == INT64_MIN + 1);
+
+// remaining(): signed, FOREVER_NS without deadline, saturating
 static_assert(awake_instant{100}.remaining(awake_instant{30}) == 70);
+static_assert(awake_instant{INT64_MIN}.remaining(awake_instant{1}) == INT64_MIN);
+static_assert(awake_instant{INT64_MIN + 5}.remaining(awake_instant{5}) == INT64_MIN);
+static_assert(
+    awake_instant{INT64_MIN + 5}.remaining(awake_instant{4}) == INT64_MIN + 1);
+static_assert(
+    awake_instant{FOREVER_NS - 1}.remaining(awake_instant{-1}) == FOREVER_NS - 1);
+static_assert(
+    awake_instant{FOREVER_NS - 1}.remaining(awake_instant{INT64_MIN})
+    == FOREVER_NS - 1);
+static_assert(
+    awake_instant{0}.remaining(awake_instant{INT64_MIN + 1}) == FOREVER_NS - 1);
+
 static_assert(awake_instant{30}.remaining(awake_instant{100}) == -70);
 static_assert(awake_instant::forever().remaining(awake_instant{100}) == FOREVER_NS);
 
