@@ -16,12 +16,14 @@ concurrency:
 # toolchains (and the results) without any change in this repository.
 # Every configuration is built and tested in Debug and Release: Debug
 # compiles handle tracking in (OSPRIM_TRACKING=AUTO), Release does not.
-# Warnings are errors everywhere.
+# Warnings are errors everywhere. Jobs time out after 30 minutes: a lost
+# wake would otherwise hang a test for hours.
 
 jobs:
   unix:
     name: ${{ matrix.config.name }} (${{ matrix.build_type }})
     runs-on: ${{ matrix.config.os }}
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       # Two axes, so every configuration runs in both build types. (Listing
@@ -31,15 +33,16 @@ jobs:
         build_type: [Debug, Release]
         config:
           # x86-64: invariant TSC (or the awake fallback in VMs that hide it)
-          - { name: linux-x64-gcc,     os: ubuntu-24.04,     cc: gcc,   cxx: g++ }
-          - { name: linux-x64-clang,   os: ubuntu-24.04,     cc: clang, cxx: clang++ }
+          - { name: linux-x64-gcc,     os: ubuntu-24.04,     cc: gcc,   cxx: g++,     cmake: '' }
+          - { name: linux-x64-clang,   os: ubuntu-24.04,     cc: clang, cxx: clang++, cmake: '' }
           # arm64: CNTVCT_EL0 with CNTFRQ_EL0
-          - { name: linux-arm64-gcc,   os: ubuntu-24.04-arm, cc: gcc,   cxx: g++ }
-          - { name: linux-arm64-clang, os: ubuntu-24.04-arm, cc: clang, cxx: clang++ }
-          # Apple silicon: mach timebase 125/3, CNTVCT_EL0 at 24 MHz
-          - { name: macos-arm64-appleclang, os: macos-15,       cc: clang, cxx: clang++ }
+          - { name: linux-arm64-gcc,   os: ubuntu-24.04-arm, cc: gcc,   cxx: g++,     cmake: '' }
+          - { name: linux-arm64-clang, os: ubuntu-24.04-arm, cc: clang, cxx: clang++, cmake: '' }
+          # Apple silicon: mach timebase 125/3, CNTVCT_EL0 at 24 MHz.
+          # Built for the oldest supported macOS (os_sync_wait_on_address).
+          - { name: macos-arm64-appleclang, os: macos-15,       cc: clang, cxx: clang++, cmake: -DCMAKE_OSX_DEPLOYMENT_TARGET=14.4 }
           # Intel Mac: mach timebase 1/1, TSC
-          - { name: macos-x64-appleclang,   os: macos-15-intel, cc: clang, cxx: clang++ }
+          - { name: macos-x64-appleclang,   os: macos-15-intel, cc: clang, cxx: clang++, cmake: -DCMAKE_OSX_DEPLOYMENT_TARGET=14.4 }
 
     steps:
       - uses: actions/checkout@v5
@@ -62,6 +65,7 @@ jobs:
           -DCMAKE_C_COMPILER=${{ matrix.config.cc }}
           -DCMAKE_CXX_COMPILER=${{ matrix.config.cxx }}
           -DOSPRIM_WARNINGS_AS_ERRORS=ON
+          ${{ matrix.config.cmake }}
 
       - name: Build
         run: cmake --build build --parallel
@@ -72,6 +76,7 @@ jobs:
   windows:
     name: ${{ matrix.config.name }} (${{ matrix.build_type }})
     runs-on: ${{ matrix.config.os }}
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -115,6 +120,7 @@ jobs:
   asan-ubsan:
     name: ${{ matrix.name }} (asan+ubsan)
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -124,7 +130,7 @@ jobs:
           - { name: linux-arm64-gcc,   os: ubuntu-24.04-arm, cc: gcc,   cxx: g++,     leaks: 1 }
           - { name: linux-arm64-clang, os: ubuntu-24.04-arm, cc: clang, cxx: clang++, leaks: 1 }
           # LeakSanitizer is not available on Apple arm64
-          - { name: macos-arm64-appleclang, os: macos-15,    cc: clang, cxx: clang++, leaks: 0 }
+          - { name: macos-arm64-appleclang, os: macos-15,    cc: clang, cxx: clang++, leaks: 0, cmake: -DCMAKE_OSX_DEPLOYMENT_TARGET=14.4 }
     env:
       CXXFLAGS: -fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer
       LDFLAGS: -fsanitize=address,undefined
@@ -156,6 +162,7 @@ jobs:
           -DCMAKE_CXX_COMPILER=${{ matrix.cxx }}
           -DOSPRIM_TRACKING=ON
           -DOSPRIM_WARNINGS_AS_ERRORS=ON
+          ${{ matrix.cmake }}
 
       - name: Build
         run: cmake --build build --parallel
@@ -166,6 +173,7 @@ jobs:
   tsan:
     name: ${{ matrix.name }} (tsan)
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -173,7 +181,7 @@ jobs:
           - { name: linux-x64-gcc,     os: ubuntu-24.04,     cc: gcc,   cxx: g++ }
           - { name: linux-x64-clang,   os: ubuntu-24.04,     cc: clang, cxx: clang++ }
           - { name: linux-arm64-clang, os: ubuntu-24.04-arm, cc: clang, cxx: clang++ }
-          - { name: macos-arm64-appleclang, os: macos-15,    cc: clang, cxx: clang++ }
+          - { name: macos-arm64-appleclang, os: macos-15,    cc: clang, cxx: clang++, cmake: -DCMAKE_OSX_DEPLOYMENT_TARGET=14.4 }
     env:
       CXXFLAGS: -fsanitize=thread -fno-omit-frame-pointer
       LDFLAGS: -fsanitize=thread
@@ -200,6 +208,7 @@ jobs:
           -DCMAKE_CXX_COMPILER=${{ matrix.cxx }}
           -DOSPRIM_TRACKING=ON
           -DOSPRIM_WARNINGS_AS_ERRORS=ON
+          ${{ matrix.cmake }}
 
       - name: Build
         run: cmake --build build --parallel
@@ -216,6 +225,7 @@ jobs:
   user-config:
     name: linux-x64-gcc (user config)
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
 
@@ -237,6 +247,7 @@ jobs:
   install:
     name: linux-x64-gcc (install)
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
 
@@ -281,6 +292,7 @@ jobs:
   android:
     name: android-${{ matrix.abi }} (${{ matrix.build_type }})
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -325,6 +337,7 @@ jobs:
   ios:
     name: ios-arm64 (${{ matrix.build_type }})
     runs-on: macos-15
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -338,7 +351,7 @@ jobs:
           -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
           -DCMAKE_SYSTEM_NAME=iOS
           -DCMAKE_OSX_ARCHITECTURES=arm64
-          -DCMAKE_OSX_DEPLOYMENT_TARGET=15.0
+          -DCMAKE_OSX_DEPLOYMENT_TARGET=17.4
           -DOSPRIM_WARNINGS_AS_ERRORS=ON
 
       - name: Build

@@ -35,16 +35,16 @@ endif()
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Android")
   set(_osprim_platform 2)
-  set(_osprim_platform_sources src/clock_linux.cpp)
+  set(_osprim_platform_sources src/clock_linux.cpp src/wait_linux.cpp)
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
   set(_osprim_platform 1)
-  set(_osprim_platform_sources src/clock_linux.cpp)
+  set(_osprim_platform_sources src/clock_linux.cpp src/wait_linux.cpp)
 elseif(WIN32)
   set(_osprim_platform 3)
-  set(_osprim_platform_sources src/clock_windows.cpp)
+  set(_osprim_platform_sources src/clock_windows.cpp src/wait_windows.cpp)
 elseif(APPLE)
   set(_osprim_platform 4)
-  set(_osprim_platform_sources src/clock_apple.cpp)
+  set(_osprim_platform_sources src/clock_apple.cpp src/wait_apple.cpp)
 else()
   message(FATAL_ERROR "osprim: unsupported system '${CMAKE_SYSTEM_NAME}'")
 endif()
@@ -58,6 +58,7 @@ message(STATUS "osprim: ${CMAKE_SYSTEM_NAME}, sources: ${_osprim_platform_source
 add_library(osprim STATIC
   include/osprim/base.hpp
   include/osprim/clock.hpp
+  include/osprim/wait.hpp
   include/osprim/osprim.hpp
   src/platform.hpp
   src/internal.hpp
@@ -77,6 +78,10 @@ target_include_directories(osprim
 )
 target_compile_features(osprim PUBLIC cxx_std_20)
 target_compile_definitions(osprim PRIVATE OSPRIM_CMAKE_PLATFORM=${_osprim_platform})
+if(WIN32)
+  # WaitOnAddress, WakeByAddressSingle, WakeByAddressAll
+  target_link_libraries(osprim PUBLIC synchronization)
+endif()
 
 # Handle tracking changes the library's behavior, not its interface, but
 # the headers expose osprim::tracking_compiled: PUBLIC keeps both in sync.
