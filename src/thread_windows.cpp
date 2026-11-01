@@ -2,7 +2,8 @@
  * @file   thread_windows.cpp
  * @brief  Windows threads, plus the calling thread settings.
  *
- * - class: SetThreadPriority on the calling thread.
+ * - class: SetThreadPriority on the calling thread; BACKGROUND also sets
+ *   EcoQoS (SetThreadInformation, ThreadPowerThrottling).
  * - name: SetThreadDescription (Windows 10 1607+, resolved at run time), from UTF-8.
  * - sleep: a high-resolution waitable timer (Windows 10 1803+): precise
  *   without raising the system timer resolution. Falls back to a regular
@@ -37,6 +38,30 @@ namespace osprim
       HANDLE from_native(uint64_t v) noexcept
       {
         return reinterpret_cast<HANDLE>(static_cast<uintptr_t>(v));
+      }
+
+      /// @brief THREAD_POWER_THROTTLING_STATE (Windows 10 1709+), declared
+      /// here because not every SDK has it (MinGW).
+      struct thread_power_throttling_state
+      {
+        ULONG Version;
+        ULONG ControlMask;
+        ULONG StateMask;
+      };
+      constexpr ULONG THREAD_THROTTLING_VERSION         = 1;
+      constexpr ULONG THREAD_THROTTLING_EXECUTION_SPEED = 0x1;
+
+      /// @brief EcoQoS on (efficient cores, lowest frequency), or back to
+      /// the system's own decision (window focus and visibility). Best
+      /// effort: Windows before 10 1709 has no EcoQoS.
+      void set_current_thread_eco_qos(bool eco) noexcept
+      {
+        thread_power_throttling_state st{};
+        st.Version     = THREAD_THROTTLING_VERSION;
+        st.ControlMask = eco ? THREAD_THROTTLING_EXECUTION_SPEED : 0;
+        st.StateMask   = eco ? THREAD_THROTTLING_EXECUTION_SPEED : 0;
+        ::SetThreadInformation(
+            ::GetCurrentThread(), ThreadPowerThrottling, &st, sizeof(st));
       }
     } // namespace
 
@@ -136,7 +161,13 @@ namespace osprim
           THREAD_PRIORITY_NORMAL, THREAD_PRIORITY_ABOVE_NORMAL};
       if (::SetThreadPriority(
               ::GetCurrentThread(), PRIORITY[static_cast<size_t>(c)]))
+      {
+        // BACKGROUND also means efficient cores, as on Apple; the other
+        // classes leave it to the system (never forced high: a minimized
+        // game must still be allowed to slow down)
+        set_current_thread_eco_qos(c == thread_class::THREAD_CLASS_BACKGROUND);
         return {};
+      }
       const DWORD err = ::GetLastError();
       return {
           err == ERROR_ACCESS_DENIED
