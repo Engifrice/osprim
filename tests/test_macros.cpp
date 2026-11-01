@@ -92,6 +92,27 @@ namespace
           set_thread_class_result::SET_THREAD_CLASS_SYSTEM_ERROR})
       n += static_cast<int>(r);
     n += static_cast<int>(THREAD_NAME_MAX);
+    n += static_cast<int>(timer_resolution_result::TIMER_RESOLUTION_OK)
+         + static_cast<int>(timer_resolution_result::TIMER_RESOLUTION_SYSTEM_ERROR);
+    for (activity_result r :
+         {activity_result::ACTIVITY_OK, activity_result::ACTIVITY_UNSUPPORTED,
+          activity_result::ACTIVITY_SYSTEM_ERROR})
+      n += static_cast<int>(r);
+    for (perf_session_result r :
+         {perf_session_result::PERF_SESSION_OK,
+          perf_session_result::PERF_SESSION_UNSUPPORTED,
+          perf_session_result::PERF_SESSION_SYSTEM_ERROR})
+      n += static_cast<int>(r);
+    for (thermal_level l :
+         {thermal_level::THERMAL_LEVEL_NOMINAL, thermal_level::THERMAL_LEVEL_FAIR,
+          thermal_level::THERMAL_LEVEL_SERIOUS,
+          thermal_level::THERMAL_LEVEL_CRITICAL})
+      n += static_cast<int>(l);
+    for (thermal_result r :
+         {thermal_result::THERMAL_OK, thermal_result::THERMAL_UNSUPPORTED,
+          thermal_result::THERMAL_UNAVAILABLE, thermal_result::THERMAL_SYSTEM_ERROR})
+      n += static_cast<int>(r);
+    n += static_cast<int>(ACTIVITY_REASON_MAX + PERF_SESSION_MAX_THREADS);
     n += FOREVER_NS == awake_instant::forever().ns;
     return n;
   }
