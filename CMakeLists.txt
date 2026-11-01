@@ -35,16 +35,16 @@ endif()
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Android")
   set(_osprim_platform 2)
-  set(_osprim_platform_sources src/clock_linux.cpp src/wait_linux.cpp)
+  set(_osprim_platform_sources src/clock_linux.cpp src/wait_linux.cpp src/thread_posix.cpp)
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
   set(_osprim_platform 1)
-  set(_osprim_platform_sources src/clock_linux.cpp src/wait_linux.cpp)
+  set(_osprim_platform_sources src/clock_linux.cpp src/wait_linux.cpp src/thread_posix.cpp)
 elseif(WIN32)
   set(_osprim_platform 3)
-  set(_osprim_platform_sources src/clock_windows.cpp src/wait_windows.cpp)
+  set(_osprim_platform_sources src/clock_windows.cpp src/wait_windows.cpp src/thread_windows.cpp)
 elseif(APPLE)
   set(_osprim_platform 4)
-  set(_osprim_platform_sources src/clock_apple.cpp src/wait_apple.cpp)
+  set(_osprim_platform_sources src/clock_apple.cpp src/wait_apple.cpp src/thread_posix.cpp)
 else()
   message(FATAL_ERROR "osprim: unsupported system '${CMAKE_SYSTEM_NAME}'")
 endif()
@@ -59,12 +59,14 @@ add_library(osprim STATIC
   include/osprim/base.hpp
   include/osprim/clock.hpp
   include/osprim/wait.hpp
+  include/osprim/thread.hpp
   include/osprim/osprim.hpp
   src/platform.hpp
   src/internal.hpp
   src/win32.hpp
   src/base.cpp
   src/clock.cpp
+  src/thread.cpp
   ${_osprim_platform_sources}
 )
 add_library(osprim::osprim ALIAS osprim)
