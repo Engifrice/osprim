@@ -86,8 +86,8 @@ if(WIN32)
   # synchronization: WaitOnAddress, WakeByAddress*. winmm: timeBeginPeriod.
   target_link_libraries(osprim PUBLIC synchronization winmm)
 elseif(APPLE)
-  # Foundation and the Objective-C runtime: NSProcessInfo activities.
-  # Blocks: notify_register_dispatch handlers.
+  # Foundation and the Objective-C runtime: NSProcessInfo activities and
+  # thermal state. Blocks: the thermal notification handler.
   target_link_libraries(osprim PUBLIC "-framework Foundation" objc)
   target_compile_options(osprim PRIVATE -fblocks)
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Android")

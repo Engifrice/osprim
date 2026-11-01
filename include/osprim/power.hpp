@@ -250,8 +250,7 @@ namespace osprim
     /// Platforms:
     /// - Android 11+: thermal status (LIGHT, MODERATE: FAIR; SEVERE:
     ///   SERIOUS; CRITICAL and above: CRITICAL).
-    /// - Apple: thermal pressure (Light, Moderate: FAIR; Heavy: SERIOUS;
-    ///   Trapping, Sleeping: CRITICAL).
+    /// - Apple (macOS, iOS): NSProcessInfo thermalState, the same four levels.
     /// - Windows, Linux: UNSUPPORTED.
     status<thermal_result> current_thermal_level(thermal_level* out) noexcept;
 
@@ -268,7 +267,8 @@ namespace osprim
     /// it, then read current_thermal_level(): no OS callback runs engine code.
     ///
     /// Use when: reacting to thermal changes without polling.
-    /// Platforms: as current_thermal_level().
+    /// Platforms: as current_thermal_level(). Apple: at most 16 watches at
+    /// once (THERMAL_SYSTEM_ERROR, ENOSPC beyond).
     /// @pre `counter` outlives the watch; one watch per counter
     status<thermal_result> thermal_watch_begin(
         std::atomic<wait_word_t>& counter, thermal_watch* out,
