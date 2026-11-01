@@ -39,25 +39,6 @@ namespace osprim
 {
   inline namespace v0_1
   {
-    namespace
-    {
-      /// @brief Mach ticks reaching at least `ns` awake nanoseconds.
-      /// @return false if not representable (centuries away)
-      bool ns_to_mach_ceil(int64_t ns, uint64_t* ticks) noexcept
-      {
-        const uint64_t n     = static_cast<uint64_t>(ns);
-        const uint64_t numer = detail::g_clock.mach_numer;
-        const uint64_t denom = detail::g_clock.mach_denom;
-        // ticks = ceil(n * denom / numer), split to avoid overflowing n * denom
-        const uint64_t q = n / numer;
-        const uint64_t r = n % numer;
-        if (q > (UINT64_MAX - denom) / denom)
-          return false;
-        *ticks = q * denom + (r * denom + numer - 1) / numer;
-        return true;
-      }
-    } // namespace
-
     wait_result wait(
         const std::atomic<wait_word_t>& word, wait_word_t expected,
         awake_instant deadline) noexcept
@@ -70,7 +51,7 @@ namespace osprim
             addr, expected, sizeof(wait_word_t), OS_SYNC_WAIT_ON_ADDRESS_NONE);
       else if (awake_now() >= deadline) // no system call for a passed deadline
         return wait_result::WAIT_TIMED_OUT;
-      else if (!ns_to_mach_ceil(deadline.ns, &ticks)) // centuries away
+      else if (!detail::awake_ns_to_mach_ceil(deadline.ns, &ticks)) // centuries away
         rc = ::os_sync_wait_on_address(
             addr, expected, sizeof(wait_word_t), OS_SYNC_WAIT_ON_ADDRESS_NONE);
       else
