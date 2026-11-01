@@ -12,6 +12,7 @@
 
 #include <osprim/base.hpp>
 #include <osprim/clock.hpp>
+#include <osprim/power.hpp>
 #include <osprim/thread.hpp>
 #include <osprim/wait.hpp>
 
@@ -51,6 +52,10 @@ namespace osprim
 
       /// @brief Sends a diagnostic to the callback given to initialize(), if any.
       void report(const diagnostic& d) noexcept;
+
+      /// @brief A process-unique non-zero id, for handles whose native
+      /// value is not unique (or absent) and must still be tracked.
+      uint64_t next_handle_id() noexcept;
 
       /*****************************/
       /* HANDLE TRACKING           */
@@ -185,6 +190,48 @@ namespace osprim
       void platform_thread_join(uint64_t native) noexcept;
       /// @brief Releases a thread that may still run.
       void platform_thread_detach(uint64_t native) noexcept;
+
+      /*****************************/
+      /* POWER                     */
+      /*****************************/
+
+      /// @brief Set by power_initialize(), constant until deinitialize().
+      extern power_features g_power_features;
+
+      /// @brief Detects the supported goals (never fails: unsupported is false).
+      void power_initialize() noexcept;
+      /// @brief Releases what power_initialize() acquired.
+      void power_deinitialize() noexcept;
+
+      // Implemented by the platform source (power_windows.cpp, ...):
+
+      void platform_power_initialize(power_features* out) noexcept;
+      void platform_power_deinitialize() noexcept;
+      status<timer_resolution_result> platform_timer_resolution_begin(
+          int64_t period_ns, uint32_t* period_ms) noexcept;
+      void platform_timer_resolution_end(uint32_t period_ms) noexcept;
+      /// @param reason UTF-8, at most ACTIVITY_REASON_MAX bytes
+      status<activity_result> platform_activity_begin(
+          const activity_desc& desc, uint64_t* native,
+          activity_desc* granted) noexcept;
+      void platform_activity_end(
+          uint64_t native, const activity_desc& granted) noexcept;
+      /// @param tids `count` thread ids, count in [1, PERF_SESSION_MAX_THREADS]
+      status<perf_session_result> platform_perf_session_create(
+          const uint64_t* tids, size_t count, int64_t target_ns,
+          uint64_t* native) noexcept;
+      status<perf_session_result> platform_perf_session_set_target(
+          uint64_t native, int64_t target_ns) noexcept;
+      status<perf_session_result> platform_perf_session_report(
+          uint64_t native, int64_t actual_ns) noexcept;
+      void platform_perf_session_close(uint64_t native) noexcept;
+      status<thermal_result> platform_thermal_level(thermal_level* out) noexcept;
+      status<thermal_result> platform_thermal_watch_begin(
+          std::atomic<wait_word_t>& counter, uint64_t* native,
+          int32_t* token) noexcept;
+      void platform_thermal_watch_end(uint64_t native, int32_t token) noexcept;
+      status<thermal_result> platform_thermal_headroom(
+          int64_t forecast_ns, float* out) noexcept;
 
       /*****************************/
       /* WAIT                      */
