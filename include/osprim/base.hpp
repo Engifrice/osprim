@@ -80,6 +80,13 @@ namespace osprim
     {
       DIAGNOSTIC_HANDLE_LEAK, ///< Still open at deinitialize()
       DIAGNOSTIC_HANDLE_MISUSE, ///< Closed twice, or used after being closed (best effort)
+      /// @brief A READ_WRITE region maps unreserved space (a hole): writing
+      /// there crashes the process if the disk fills up. The handle is the
+      /// region (native_value: its data pointer).
+      DIAGNOSTIC_REGION_OVER_HOLE,
+      /// @brief A file was shrunk below a live region: touching the lost
+      /// pages crashes the process (POSIX). The handle is the region.
+      DIAGNOSTIC_REGION_TRUNCATED,
     };
 
     /// @brief One diagnostic, only valid during the callback.
@@ -92,7 +99,7 @@ namespace osprim
       uint64_t native_value;
       /// @brief Where the handle was created (default-constructed if unknown)
       std::source_location created_at;
-      /// @brief Where the misuse happened (equal to created_at for leaks)
+      /// @brief Where the problem was detected (equal to created_at for leaks)
       std::source_location reported_at;
     };
 
