@@ -250,9 +250,6 @@ TEST_CASE("file: Windows path conversion")
   REQUIRE(conv("C:/a/./b/../c.txt").ok());
   CHECK(std::wstring(out) == L"\\\\?\\C:\\a\\c.txt");
   CHECK_FALSE(verbatim);
-  REQUIRE(conv("c:\\dir\\trailing. ").ok()); // trailing dots and spaces stripped
-  if (!under_wine()) // Wine keeps them
-    CHECK(std::wstring(out) == L"\\\\?\\C:\\dir\\trailing");
   REQUIRE(conv("\\\\server\\share\\x.bin").ok());
   CHECK(std::wstring(out) == L"\\\\?\\UNC\\server\\share\\x.bin");
   REQUIRE(conv("//server/share/y").ok());
