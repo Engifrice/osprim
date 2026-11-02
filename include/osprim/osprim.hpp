@@ -7,8 +7,10 @@
 
 #include <osprim/base.hpp>
 #include <osprim/clock.hpp>
+#include <osprim/file.hpp>
 #include <osprim/platform.hpp>
 #include <osprim/power.hpp>
+#include <osprim/region.hpp>
 #include <osprim/thread.hpp>
 #include <osprim/topology.hpp>
 #include <osprim/wait.hpp>
