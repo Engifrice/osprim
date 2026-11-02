@@ -40,8 +40,8 @@
  *   they can be renamed or deleted while open, as on POSIX. Handles are
  *   overlapped; the library waits internally, so calls stay blocking.
  *   Paths are normalized (GetFullPathNameW: / becomes \, . and .. are
- *   resolved, trailing dots and spaces are stripped) and given the \\?\
- *   prefix, so the 260-character limit never applies. file_open() uses
+ *   resolved, Win32 name rules apply) and given the \\?\ prefix,
+ *   so the 260-character limit never applies. file_open() uses
  *   about 16 KiB of stack there (two UTF-16 path buffers).
  *
  * Durability and write failures (Linux drops the data of failed
@@ -402,7 +402,7 @@ namespace osprim
       FILE_SET_SIZE_OK,
       FILE_SET_SIZE_NO_SPACE,       ///< Disk full or quota reached (size unchanged)
       FILE_SET_SIZE_FILE_TOO_LARGE, ///< Above the filesystem's file size limit
-      FILE_SET_SIZE_MAPPED,         ///< Windows: shrinking below a mapped range
+      FILE_SET_SIZE_MAPPED, ///< Windows: shrinking a file that has a live region
       FILE_SET_SIZE_UNSUPPORTED, ///< RESERVE not possible on this filesystem (size unchanged)
       FILE_SET_SIZE_IO_ERROR,     ///< The device failed
       FILE_SET_SIZE_SYSTEM_ERROR, ///< Any other refusal (see native_code)
@@ -410,7 +410,8 @@ namespace osprim
 
     /// @brief Grows or shrinks the file to `size` bytes. Shrinking below a
     /// live region is reported in tracked builds; on POSIX, touching the
-    /// lost pages crashes the process (SIGBUS).
+    /// lost pages crashes the process (SIGBUS). Windows refuses any shrink
+    /// while the file has a live region (MAPPED).
     /// @pre Open with write access; `size` <= INT64_MAX
     status<file_set_size_result> file_set_size(
         file_handle h, uint64_t size, file_size_mode mode,

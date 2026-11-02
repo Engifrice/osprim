@@ -25,7 +25,8 @@ using namespace osprim_test;
 
 namespace
 {
-  region map_ok(osprim::file_handle h, uint64_t offset, size_t size, region_access access)
+  region map_ok(
+      osprim::file_handle h, uint64_t offset, size_t size, region_access access)
   {
     region r{};
     const auto s = region_map(h, offset, size, access, r);
@@ -36,7 +37,10 @@ namespace
     return r;
   }
 
-  const unsigned char* bytes(region r) { return static_cast<const unsigned char*>(r.data); }
+  const unsigned char* bytes(region r)
+  {
+    return static_cast<const unsigned char*>(r.data);
+  }
 } // namespace
 
 TEST_CASE("region: granularity")
@@ -55,13 +59,13 @@ TEST_CASE("region: any offset, and the file handle may be closed")
 {
   session s;
   temp_dir dir;
-  const size_t g      = region_granularity();
-  const size_t size   = 3 * g + 1234;
-  osprim::file_handle h       = make_pattern_file(dir.path("map.bin"), size);
-  const region odd    = map_ok(h, 12345, 1000, region_access::REGION_ACCESS_READ);
-  const region across = map_ok(h, g - 7, 20, region_access::REGION_ACCESS_READ);
-  const region whole  = map_ok(h, 0, size, region_access::REGION_ACCESS_READ);
-  const region tail   = map_ok(h, size - 1, 1, region_access::REGION_ACCESS_READ);
+  const size_t g        = region_granularity();
+  const size_t size     = 3 * g + 1234;
+  osprim::file_handle h = make_pattern_file(dir.path("map.bin"), size);
+  const region odd      = map_ok(h, 12345, 1000, region_access::REGION_ACCESS_READ);
+  const region across   = map_ok(h, g - 7, 20, region_access::REGION_ACCESS_READ);
+  const region whole    = map_ok(h, 0, size, region_access::REGION_ACCESS_READ);
+  const region tail     = map_ok(h, size - 1, 1, region_access::REGION_ACCESS_READ);
   file_close(h); // regions do not need the handle
   CHECK(has_pattern(bytes(odd), 1000, 12345));
   CHECK(has_pattern(bytes(across), 20, g - 7));
@@ -79,20 +83,28 @@ TEST_CASE("region: bounds and empty ranges")
   temp_dir dir;
   osprim::file_handle h = make_pattern_file(dir.path("bounds.bin"), 100);
   region r{};
-  CHECK(region_map(h, 0, 0, region_access::REGION_ACCESS_READ, r).result == region_map_result::REGION_MAP_EMPTY);
-  CHECK(region_map(h, 0, 101, region_access::REGION_ACCESS_READ, r).result
-        == region_map_result::REGION_MAP_OUT_OF_RANGE);
-  CHECK(region_map(h, 100, 1, region_access::REGION_ACCESS_READ, r).result
-        == region_map_result::REGION_MAP_OUT_OF_RANGE);
-  CHECK(region_map(h, UINT64_MAX - 10, 100, region_access::REGION_ACCESS_READ, r).result
-        == region_map_result::REGION_MAP_OUT_OF_RANGE);
+  CHECK(
+      region_map(h, 0, 0, region_access::REGION_ACCESS_READ, r).result
+      == region_map_result::REGION_MAP_EMPTY);
+  CHECK(
+      region_map(h, 0, 101, region_access::REGION_ACCESS_READ, r).result
+      == region_map_result::REGION_MAP_OUT_OF_RANGE);
+  CHECK(
+      region_map(h, 100, 1, region_access::REGION_ACCESS_READ, r).result
+      == region_map_result::REGION_MAP_OUT_OF_RANGE);
+  CHECK(
+      region_map(h, UINT64_MAX - 10, 100, region_access::REGION_ACCESS_READ, r)
+          .result
+      == region_map_result::REGION_MAP_OUT_OF_RANGE);
   file_close(h);
 
   osprim::file_handle empty = make_pattern_file(dir.path("empty.bin"), 0);
-  CHECK(region_map(empty, 0, 1, region_access::REGION_ACCESS_READ, r).result
-        == region_map_result::REGION_MAP_OUT_OF_RANGE);
-  CHECK(region_map(empty, 0, 0, region_access::REGION_ACCESS_READ, r).result
-        == region_map_result::REGION_MAP_EMPTY);
+  CHECK(
+      region_map(empty, 0, 1, region_access::REGION_ACCESS_READ, r).result
+      == region_map_result::REGION_MAP_OUT_OF_RANGE);
+  CHECK(
+      region_map(empty, 0, 0, region_access::REGION_ACCESS_READ, r).result
+      == region_map_result::REGION_MAP_EMPTY);
   file_close(empty);
 }
 
@@ -104,16 +116,18 @@ TEST_CASE("region: access needs a matching handle")
   file_close(make_pattern_file(p, 4096));
   osprim::file_handle ro = open_ok(p, file_access::FILE_ACCESS_READ);
   region r{};
-  CHECK(region_map(ro, 0, 100, region_access::REGION_ACCESS_READ_WRITE, r).result
-        == region_map_result::REGION_MAP_ACCESS_DENIED);
+  CHECK(
+      region_map(ro, 0, 100, region_access::REGION_ACCESS_READ_WRITE, r).result
+      == region_map_result::REGION_MAP_ACCESS_DENIED);
   // Copy-on-write only needs read access
   r = map_ok(ro, 0, 100, region_access::REGION_ACCESS_COPY_ON_WRITE);
   region_unmap(r);
   file_close(ro);
 
   osprim::file_handle wo = open_ok(p, file_access::FILE_ACCESS_WRITE);
-  CHECK(region_map(wo, 0, 100, region_access::REGION_ACCESS_READ, r).result
-        == region_map_result::REGION_MAP_ACCESS_DENIED);
+  CHECK(
+      region_map(wo, 0, 100, region_access::REGION_ACCESS_READ, r).result
+      == region_map_result::REGION_MAP_ACCESS_DENIED);
   file_close(wo);
 }
 
@@ -121,10 +135,10 @@ TEST_CASE("region: writes, flush and visibility")
 {
   session s;
   temp_dir dir;
-  const size_t g = region_granularity();
-  osprim::file_handle h  = make_pattern_file(dir.path("write.bin"), 2 * g);
-  region a       = map_ok(h, 100, g, region_access::REGION_ACCESS_READ_WRITE);
-  region b       = map_ok(h, 0, 2 * g, region_access::REGION_ACCESS_READ);
+  const size_t g        = region_granularity();
+  osprim::file_handle h = make_pattern_file(dir.path("write.bin"), 2 * g);
+  region a              = map_ok(h, 100, g, region_access::REGION_ACCESS_READ_WRITE);
+  region b              = map_ok(h, 0, 2 * g, region_access::REGION_ACCESS_READ);
 
   static_cast<unsigned char*>(a.data)[0]     = 0xa1;
   static_cast<unsigned char*>(a.data)[g - 1] = 0xa2;
@@ -151,9 +165,10 @@ TEST_CASE("region: copy-on-write never reaches the file")
   session s;
   temp_dir dir;
   osprim::file_handle h = make_pattern_file(dir.path("cow.bin"), 8192);
-  region c      = map_ok(h, 10, 100, region_access::REGION_ACCESS_COPY_ON_WRITE);
-  region r      = map_ok(h, 0, 8192, region_access::REGION_ACCESS_READ);
-  static_cast<unsigned char*>(c.data)[0] = static_cast<unsigned char>(~pattern_byte(10));
+  region c = map_ok(h, 10, 100, region_access::REGION_ACCESS_COPY_ON_WRITE);
+  region r = map_ok(h, 0, 8192, region_access::REGION_ACCESS_READ);
+  static_cast<unsigned char*>(c.data)[0] =
+      static_cast<unsigned char>(~pattern_byte(10));
   CHECK(bytes(c)[0] == static_cast<unsigned char>(~pattern_byte(10)));
   CHECK(bytes(r)[10] == pattern_byte(10));
   CHECK(read_all(h, 10, 1)[0] == pattern_byte(10));
@@ -173,7 +188,7 @@ TEST_CASE("region: tracking and diagnostics")
   {
     session s;
     osprim::file_handle h = make_pattern_file(dir.path("leak.bin"), 100);
-    region r      = map_ok(h, 0, 100, region_access::REGION_ACCESS_READ);
+    region r              = map_ok(h, 0, 100, region_access::REGION_ACCESS_READ);
     file_close(h);
     const diagnostic_log& log = s.end();
     REQUIRE(log.count == 1);
@@ -187,17 +202,13 @@ TEST_CASE("region: tracking and diagnostics")
   {
     session s;
     osprim::file_handle h = make_pattern_file(dir.path("shrink.bin"), 2 * g);
-    region r      = map_ok(h, 0, 100, region_access::REGION_ACCESS_READ);
+    region r              = map_ok(h, 0, 100, region_access::REGION_ACCESS_READ);
 
-    // Above the region: allowed everywhere, no diagnostic
+    // Above the region: no diagnostic; Windows refuses any shrink while a view exists
     const auto above = file_set_size(h, g, file_size_mode::FILE_SIZE_MODE_FAST);
     INFO("native code: " << above.native_code);
 #if OSPRIM_OS_WINDOWS
-    // Wine refuses to truncate a file with any mapping alive
-    if (under_wine())
-      CHECK((above.ok() || above.result == file_set_size_result::FILE_SET_SIZE_MAPPED));
-    else
-      CHECK(above.ok());
+    CHECK(above.result == file_set_size_result::FILE_SET_SIZE_MAPPED);
 #else
     CHECK(above.ok());
 #endif
@@ -228,7 +239,8 @@ TEST_CASE("region: tracking and diagnostics")
 #if OSPRIM_OS_LINUX || OSPRIM_OS_ANDROID
     struct stat st{};
     REQUIRE(::fstat(h.native, &st) == 0);
-    expect_hole = static_cast<uint64_t>(st.st_blocks) * 512 < static_cast<uint64_t>(st.st_size);
+    expect_hole = static_cast<uint64_t>(st.st_blocks) * 512
+                  < static_cast<uint64_t>(st.st_size);
 #endif
     region r = map_ok(h, 0, g, region_access::REGION_ACCESS_READ_WRITE);
     region_unmap(r);
@@ -238,7 +250,9 @@ TEST_CASE("region: tracking and diagnostics")
       CHECK(s.log.entries[0].kind == diagnostic_kind::DIAGNOSTIC_REGION_OVER_HOLE);
     }
     else
-      note("holes detected: %llu (FAST growth may allocate here)", static_cast<unsigned long long>(s.log.count));
+      note(
+          "holes detected: %llu (FAST growth may allocate here)",
+          static_cast<unsigned long long>(s.log.count));
     s.log.count = 0;
 
     // Read-only regions are not checked
@@ -248,7 +262,7 @@ TEST_CASE("region: tracking and diagnostics")
 
     // RESERVE leaves no hole
     osprim::file_handle q = make_pattern_file(dir.path("reserved.bin"), 0);
-    const auto z  = file_set_size(q, 4 * g, file_size_mode::FILE_SIZE_MODE_RESERVE);
+    const auto z = file_set_size(q, 4 * g, file_size_mode::FILE_SIZE_MODE_RESERVE);
     if (z.ok())
     {
       r = map_ok(q, g, 2 * g, region_access::REGION_ACCESS_READ_WRITE);
@@ -259,7 +273,7 @@ TEST_CASE("region: tracking and diagnostics")
       note("RESERVE unsupported here (native code %d)", z.native_code);
     // Written data is not a hole either
     osprim::file_handle w = make_pattern_file(dir.path("written.bin"), 2 * g);
-    r             = map_ok(w, 0, 2 * g, region_access::REGION_ACCESS_READ_WRITE);
+    r = map_ok(w, 0, 2 * g, region_access::REGION_ACCESS_READ_WRITE);
     region_unmap(r);
     CHECK(s.log.count == 0);
     s.log.count = 0;

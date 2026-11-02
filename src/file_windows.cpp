@@ -3,7 +3,7 @@
  * @brief  Files and regions on Windows.
  *
  * - Paths: UTF-8 to UTF-16, GetFullPathNameW (separators, dot segments,
- *   trailing dots and spaces), then the \\?\ (or \\?\UNC\) prefix. Device
+ *   Win32 name rules), then the \\?\ (or \\?\UNC\) prefix. Device
  *   paths (\\.\, reserved names such as NUL) are refused before opening.
  * - Handles are overlapped with full sharing. Each blocking call passes an
  *   OVERLAPPED whose event comes from a pool (FILE_EVENT_POOL_SIZE events,
@@ -720,7 +720,8 @@ namespace osprim
             return fail(R::REGION_MAP_OUT_OF_MEMORY, e);
           return fail(R::REGION_MAP_SYSTEM_ERROR, e);
         };
-        // Sized to the end of the view: shrinking the file above it stays possible
+        // Sized to the end of the view. Windows refuses to shrink the file
+        // while any view exists, whatever the sizes (ERROR_USER_MAPPED_FILE).
         const HANDLE mapping = ::CreateFileMappingW(
             h, nullptr, protect, static_cast<DWORD>(end >> 32),
             static_cast<DWORD>(end), nullptr);
