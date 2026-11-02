@@ -73,6 +73,14 @@ jobs:
       - name: Test
         run: ./build/tests/osprim_tests
 
+      # NO_SPACE: a 1 MiB tmpfs, named to the test in OSPRIM_TEST_SMALL_DIR
+      - name: Test on a full filesystem
+        if: runner.os == 'Linux'
+        run: |
+          sudo mkdir -p /mnt/osprim_small
+          sudo mount -t tmpfs -o size=1m,mode=1777 tmpfs /mnt/osprim_small
+          OSPRIM_TEST_SMALL_DIR=/mnt/osprim_small ./build/tests/osprim_tests -tc="file: NO_SPACE*"
+
   windows:
     name: ${{ matrix.config.name }} (${{ matrix.build_type }})
     runs-on: ${{ matrix.config.os }}
