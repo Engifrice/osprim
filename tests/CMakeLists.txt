@@ -22,6 +22,7 @@ find_package(Threads REQUIRED)
 add_executable(osprim_tests
   main.cpp
   support.hpp
+  files.hpp
   user_config.hpp
   test_base.cpp
   test_clock.cpp
@@ -29,6 +30,8 @@ add_executable(osprim_tests
   test_thread.cpp
   test_power.cpp
   test_topology.cpp
+  test_file.cpp
+  test_region.cpp
   test_macros.cpp
 )
 target_link_libraries(osprim_tests PRIVATE osprim::osprim doctest::doctest Threads::Threads)
