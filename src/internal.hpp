@@ -12,7 +12,9 @@
 
 #include <osprim/base.hpp>
 #include <osprim/clock.hpp>
+#include <osprim/file.hpp>
 #include <osprim/power.hpp>
+#include <osprim/region.hpp>
 #include <osprim/thread.hpp>
 #include <osprim/topology.hpp>
 #include <osprim/wait.hpp>
@@ -67,17 +69,40 @@ namespace osprim
       // A handle is identified by its type name and native value. These are
       // no-ops when tracking is not compiled in or disabled at runtime.
 
+      /// @brief What a module records with a handle for its Debug checks
+      /// (meaning chosen by the module).
+      struct track_meta
+      {
+        uint64_t words[5];
+      };
+
+      /// @brief Selects handles in track_find().
+      using track_match_fn =
+          bool (*)(const track_meta& meta, const void* ctx) noexcept;
+
 #if OSPRIM_TRACKING
-      /// @brief Records an open handle.
+      /// @brief Records an open handle, with optional metadata.
       void track_open(
-          const char* type, uint64_t native, std::source_location loc) noexcept;
+          const char* type, uint64_t native, std::source_location loc,
+          const track_meta* meta = nullptr) noexcept;
       /// @brief Forgets a handle, reporting DIAGNOSTIC_HANDLE_MISUSE if it is not open.
       void track_close(
           const char* type, uint64_t native, std::source_location loc) noexcept;
       /// @brief Number of handles currently recorded.
       size_t tracked_count() noexcept;
+      /// @brief The metadata of a recorded handle.
+      /// @return false if not recorded (or tracking is off)
+      bool track_get(const char* type, uint64_t native, track_meta* out) noexcept;
+      /// @brief The first recorded handle of `type` that `match` accepts
+      /// (called under the registry lock: it must not call osprim).
+      /// @return false if none
+      bool track_find(
+          const char* type, track_match_fn match, const void* ctx, uint64_t* native,
+          std::source_location* created_at) noexcept;
 #else
-      inline void track_open(const char*, uint64_t, std::source_location) noexcept
+      inline void track_open(
+          const char*, uint64_t, std::source_location,
+          const track_meta* = nullptr) noexcept
       {
       }
       inline void track_close(const char*, uint64_t, std::source_location) noexcept
@@ -86,6 +111,16 @@ namespace osprim
       inline size_t tracked_count() noexcept
       {
         return 0;
+      }
+      inline bool track_get(const char*, uint64_t, track_meta*) noexcept
+      {
+        return false;
+      }
+      inline bool track_find(
+          const char*, track_match_fn, const void*, uint64_t*,
+          std::source_location*) noexcept
+      {
+        return false;
       }
 #endif
 
@@ -340,6 +375,103 @@ namespace osprim
           const void* buffer, size_t size, const uint16_t* allowed_groups,
           size_t group_count, uint16_t primary_group, uint64_t primary_mask,
           cpu_record* records, size_t capacity) noexcept;
+#endif
+
+      /*****************************/
+      /* FILES AND REGIONS         */
+      /*****************************/
+
+      /// @brief Tracking type names.
+      inline constexpr const char* FILE_TRACK_TYPE   = "file";
+      inline constexpr const char* REGION_TRACK_TYPE = "region";
+
+      /// @brief The native handle as a tracking key.
+      inline uint64_t file_key(native_file_t native) noexcept
+      {
+#if OSPRIM_OS_WINDOWS
+        return static_cast<uint64_t>(reinterpret_cast<uintptr_t>(native));
+#else
+        return static_cast<uint64_t>(static_cast<int64_t>(native));
+#endif
+      }
+
+      /// @brief True if `p[0, size)` is UTF-8 without NUL, overlong forms,
+      /// surrogates or code points above U+10FFFF.
+      bool utf8_valid(const char* p, size_t size) noexcept;
+
+      /// @brief Caches the page size and the mapping granularity.
+      void file_initialize() noexcept;
+      /// @brief Releases what the file backend holds (Windows: the events).
+      void file_deinitialize() noexcept;
+
+      // Implemented by the platform source (file_posix.cpp, file_windows.cpp).
+      // Arguments are validated by file.cpp.
+
+      void platform_file_initialize(size_t* page_size, size_t* granularity) noexcept;
+      void platform_file_deinitialize() noexcept;
+      /// @param path Valid UTF-8 without NUL, at most MAX_PATH_BYTES bytes
+      status<file_open_result> platform_file_open(
+          const char* path, size_t size, const file_open_desc& desc,
+          native_file_t* out) noexcept;
+      void platform_file_close(native_file_t native) noexcept;
+      /// @param unbuffered null: no detection wanted
+      status<file_adopt_result> platform_file_adopt(
+          native_file_t native, bool* unbuffered) noexcept;
+      status<file_read_result> platform_file_read(
+          native_file_t native, uint64_t offset, void* buffer, size_t size,
+          size_t* transferred) noexcept;
+      status<file_write_result> platform_file_write(
+          native_file_t native, uint64_t offset, const void* buffer, size_t size,
+          size_t* transferred) noexcept;
+      status<file_flush_result> platform_file_flush(native_file_t native) noexcept;
+      status<file_info_result> platform_file_info(
+          native_file_t native, file_info* out) noexcept;
+      status<file_set_size_result> platform_file_set_size(
+          native_file_t native, uint64_t size, file_size_mode mode) noexcept;
+      status<file_alignment_result> platform_file_alignment(
+          native_file_t native, file_alignment* out) noexcept;
+      /// @brief Whether [offset, offset + size) has unreserved space (Debug check).
+      /// @return false if it could not be determined (no report)
+      bool platform_file_has_hole(
+          native_file_t native, uint64_t offset, size_t size) noexcept;
+
+      /// @brief Maps `length` bytes from `aligned_offset` (a multiple of the
+      /// granularity), after checking that `end` is within the file.
+      status<region_map_result> platform_region_map(
+          native_file_t native, uint64_t aligned_offset, size_t length, uint64_t end,
+          region_access access, void** base) noexcept;
+      void platform_region_unmap(void* base, size_t length) noexcept;
+      /// @param address Page-aligned
+      status<region_flush_result> platform_region_flush(
+          void* address, size_t length) noexcept;
+
+      /// @brief The page size (region_flush alignment).
+      size_t page_size() noexcept;
+
+#if OSPRIM_OS_WINDOWS
+      /// @brief Number of events in the I/O event pool. Calls beyond it
+      /// create a temporary event each.
+      inline constexpr size_t FILE_EVENT_POOL_SIZE = 64;
+
+      /// @brief An event for one blocking I/O call.
+      struct file_event
+      {
+        void* handle;
+        /// @brief Pool slot, or UINT32_MAX for a temporary event
+        uint32_t slot;
+      };
+
+      /// @brief Takes an event from the pool, or creates a temporary one.
+      /// @return handle null on failure (GetLastError() set)
+      file_event file_event_acquire() noexcept;
+      /// @brief Returns a pooled event, or closes a temporary one.
+      void file_event_release(file_event e) noexcept;
+
+      /// @brief Converts a validated UTF-8 path to the \\?\ form CreateFileW
+      /// gets (exposed for tests). `out` holds `capacity` UTF-16 units.
+      status<file_open_result> windows_file_path(
+          const char* path, size_t size, wchar_t* out, size_t capacity,
+          bool* verbatim) noexcept;
 #endif
 
       /*****************************/
