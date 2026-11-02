@@ -74,6 +74,7 @@ namespace osprim
         const char* type;
         uint64_t native;
         std::source_location created_at;
+        detail::track_meta meta;
       };
 
       struct registry
@@ -217,7 +218,8 @@ namespace osprim
 
 #if OSPRIM_TRACKING
       void track_open(
-          const char* type, uint64_t native, std::source_location loc) noexcept
+          const char* type, uint64_t native, std::source_location loc,
+          const track_meta* meta) noexcept
       {
         if (!g_lib.tracking)
           return;
@@ -233,11 +235,13 @@ namespace osprim
             duplicate                        = true;
             previous                         = g_registry.records[i].created_at;
             g_registry.records[i].created_at = loc;
+            g_registry.records[i].meta = meta != nullptr ? *meta : track_meta{};
           }
           else if (g_registry.count == g_registry.capacity && !grow())
             g_registry.incomplete = true;
           else
-            g_registry.records[g_registry.count++] = record{type, native, loc};
+            g_registry.records[g_registry.count++] =
+                record{type, native, loc, meta != nullptr ? *meta : track_meta{}};
         }
         if (duplicate)
           report(
@@ -280,6 +284,38 @@ namespace osprim
         registry_lock lock;
         return g_registry.count;
       }
+
+      bool track_get(const char* type, uint64_t native, track_meta* out) noexcept
+      {
+        if (!g_lib.tracking)
+          return false;
+        registry_lock lock;
+        const size_t i = find(type, native);
+        if (i == g_registry.count)
+          return false;
+        *out = g_registry.records[i].meta;
+        return true;
+      }
+
+      bool track_find(
+          const char* type, track_match_fn match, const void* ctx, uint64_t* native,
+          std::source_location* created_at) noexcept
+      {
+        if (!g_lib.tracking)
+          return false;
+        registry_lock lock;
+        for (size_t i = 0; i < g_registry.count; ++i)
+        {
+          const record& r = g_registry.records[i];
+          if (same_type(r.type, type) && match(r.meta, ctx))
+          {
+            *native     = r.native;
+            *created_at = r.created_at;
+            return true;
+          }
+        }
+        return false;
+      }
 #endif // OSPRIM_TRACKING
     } // namespace detail
 
@@ -318,6 +354,7 @@ namespace osprim
 
       detail::power_initialize();
       detail::topology_initialize();
+      detail::file_initialize();
 
       g_lib.initialized = true;
       return {};
@@ -331,6 +368,7 @@ namespace osprim
         registry_deinitialize();
 #endif
       detail::power_deinitialize();
+      detail::file_deinitialize();
       g_lib = library_state{};
     }
   } // namespace v0_1
