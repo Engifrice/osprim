@@ -14,6 +14,8 @@ osprim provides **mechanism, not policy**: the lowest-level building blocks, wit
 | Thread   | `osprim/thread.hpp`   | Create, join with a deadline, detach; ids, names, scheduling classes; yield, spin hint, precise sleep |
 | Power    | `osprim/power.hpp`    | Timer resolution, process activity, performance sessions, thermal state                               |
 | Topology | `osprim/topology.hpp` | CPU budget, core classes and caches, thread affinity, cache line constants                            |
+| File     | `osprim/file.hpp`     | Open, positioned read and write, flush, size and identity, adoption of native handles, unbuffered I/O |
+| Region   | `osprim/region.hpp`   | Mapped regions of files                                                                               |
 | Platform | `osprim/platform.hpp` | `OSPRIM_OS_*` and `OSPRIM_ARCH_*` macros                                                              |
 
 `osprim/osprim.hpp` includes everything.
@@ -24,7 +26,7 @@ osprim provides **mechanism, not policy**: the lowest-level building blocks, wit
 - Every function is `noexcept`. The library is built without exceptions and RTTI.
 - The library never allocates, except for handle tracking (debug), which goes through the allocator hooks given to `initialize()`.
 - Fallible operations return `status<Result>`: the operation's own `enum class` (value 0 is success) plus the native error behind it (errno, Win32, NTSTATUS, `kern_return_t`).
-- Preconditions are checked with `OSPRIM_ASSERT(expr, msg)`, `assert()` by default. Misuse that can only be detected at runtime (leaked or double-closed handles) is reported through the diagnostic callback.
+- Preconditions are checked with `OSPRIM_ASSERT(expr, msg)`, `assert()` by default. Misuse that can only be detected at runtime (leaked or double-closed handles, a writable region over a hole, a file shrunk under a region) is reported through the diagnostic callback.
 - Every symbol lives in a versioned inline namespace (`osprim::v0_1`): headers and a library of different versions do not link together.
 
 ## Clocks
@@ -203,6 +205,36 @@ New threads inherit their creator's CPUs on Linux and Android, and the process's
 | x86-64        | 64                | 128 (the L2 prefetcher fetches pairs of lines) |
 | arm64, Apple  | 128               | 128                                            |
 | arm64, others | 64                | 64                                             |
+
+## Files and regions
+
+| Your goal                                                            | Use                                                          |
+| -------------------------------------------------------------------- | ------------------------------------------------------------ |
+| Open or create a file                                                | `file_open()` with a `file_disposition`                      |
+| Read or write at an offset                                           | `file_read_at()`, `file_write_at()`                          |
+| Make written data survive a power loss                               | `file_flush()`                                               |
+| Size, last write time, "is it the same file?"                        | `file_info_of()`                                             |
+| Grow or shrink a file                                                | `file_set_size()`: `FAST`, or `RESERVE` to reserve the space |
+| Use a descriptor from another API (Android assets, document pickers) | `file_adopt()`                                               |
+| Give a handle to an API that will close it                           | `file_release()`                                             |
+| Stream large data without the OS cache                               | `file_open_desc::unbuffered`, `file_unbuffered_alignment()`  |
+| Random access into large read-only data                              | `region_map()`                                               |
+
+A `file_handle` is the native handle: no state outside handle tracking, free to copy. There is no file position: every read and write names its offset, so any number of threads may use one handle at once (on Windows too: handles are overlapped, and the library waits internally). One call is one system call: a read is short only at the end of the file, a write only when space runs out; "read exactly" and "write everything" loops belong to the layer above.
+
+**Paths** are UTF-8 (validated everywhere), absolute, given as pointer and size, and at most `MAX_PATH_BYTES` (4095; 1023 on Apple). Content meant to ship everywhere stays under `PORTABLE_MAX_PATH_BYTES` (1023). On Windows they are normalized (`GetFullPathNameW`) and prefixed with `\\?\`, so the 260-character limit never applies; device paths (`\\.\`, reserved names such as `NUL`) are refused. Names reserved by Windows, the characters `< > : " | ? *` and case differences are not checked: names that work on one platform can fail or collide on another. Only regular files open.
+
+|                          | Linux, Android                            | Windows                                 | Apple                               |
+| ------------------------ | ----------------------------------------- | --------------------------------------- | ----------------------------------- |
+| `FILE_IO_MAX` (one call) | 2,147,479,552                             | 4 GiB - 1                               | 2 GiB - 1                           |
+| `file_flush()`           | `fdatasync`                               | `FlushFileBuffers`                      | `F_FULLFSYNC` (else `fsync`)        |
+| `RESERVE` growth         | `fallocate`                               | allocation info (NTFS always allocates) | `F_PREALLOCATE`                     |
+| Unbuffered               | `O_DIRECT`, alignment from `statx` (6.1+) | `FILE_FLAG_NO_BUFFERING`, sector size   | `F_NOCACHE`, held to the block size |
+
+**Write failures.** When background write-back fails, Linux marks the lost pages clean and drops them; other systems are no better. So: keep the same handle open from the first write to `file_flush()` (a handle opened later may never see the error); after a failed flush, do not retry it and do not read the data back to check it (the cache may hold what the disk does not), write a complete new copy instead; expect errors at the write, at the flush, or both.
+
+
+**Regions** map a range of a file as memory. Any offset works, the range must lie inside the file, and the file handle may be closed right after mapping. Every failure becomes a crash, because a memory access has no error return: a device error, a file truncated by another program, or a full disk while writing into unreserved space (grow with `RESERVE` first). Map large read-only data on local storage; read everything else, and write saves with `file_write_at()`. Durable writes through a region take two steps: `region_flush()`, then `file_flush()` on a handle to the file.
 
 ## Supported targets
 
