@@ -8,6 +8,7 @@
 #include <osprim/base.hpp>
 #include <osprim/clock.hpp>
 #include <osprim/file.hpp>
+#include <osprim/path.hpp>
 #include <osprim/platform.hpp>
 #include <osprim/power.hpp>
 #include <osprim/region.hpp>
