@@ -32,6 +32,7 @@ add_executable(osprim_tests
   test_topology.cpp
   test_file.cpp
   test_region.cpp
+  test_path.cpp
   test_macros.cpp
 )
 target_link_libraries(osprim_tests PRIVATE osprim::osprim doctest::doctest Threads::Threads)
