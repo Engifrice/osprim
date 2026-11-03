@@ -6,17 +6,18 @@ osprim provides **mechanism, not policy**: the lowest-level building blocks, wit
 ## Status:
 [![CI](https://github.com/Engifrice/osprim/actions/workflows/CI.yml/badge.svg?branch=main&event=push)](https://github.com/Engifrice/osprim/actions/workflows/CI.yml)
 
-| Module   | Header                | Contents                                                                                              |
-| -------- | --------------------- | ----------------------------------------------------------------------------------------------------- |
-| Base     | `osprim/base.hpp`     | Library lifetime, results, native errors, diagnostics (leak and misuse reports)                       |
-| Clock    | `osprim/clock.hpp`    | Awake, continuous and wall clocks; raw tick counter                                                   |
-| Wait     | `osprim/wait.hpp`     | Wait on an address until woken or an awake deadline; wake one or all                                  |
-| Thread   | `osprim/thread.hpp`   | Create, join with a deadline, detach; ids, names, scheduling classes; yield, spin hint, precise sleep |
-| Power    | `osprim/power.hpp`    | Timer resolution, process activity, performance sessions, thermal state                               |
-| Topology | `osprim/topology.hpp` | CPU budget, core classes and caches, thread affinity, cache line constants                            |
-| File     | `osprim/file.hpp`     | Open, positioned read and write, flush, size and identity, adoption of native handles, unbuffered I/O |
-| Region   | `osprim/region.hpp`   | Mapped regions of files                                                                               |
-| Platform | `osprim/platform.hpp` | `OSPRIM_OS_*` and `OSPRIM_ARCH_*` macros                                                              |
+| Module   | Header                | Contents                                                                                                                                                       |
+| -------- | --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Base     | `osprim/base.hpp`     | Library lifetime, results, native errors, diagnostics (leak and misuse reports)                                                                                |
+| Clock    | `osprim/clock.hpp`    | Awake, continuous and wall clocks; raw tick counter                                                                                                            |
+| Wait     | `osprim/wait.hpp`     | Wait on an address until woken or an awake deadline; wake one or all                                                                                           |
+| Thread   | `osprim/thread.hpp`   | Create, join with a deadline, detach; ids, names, scheduling classes; yield, spin hint, precise sleep                                                          |
+| Power    | `osprim/power.hpp`    | Timer resolution, process activity, performance sessions, thermal state                                                                                        |
+| Topology | `osprim/topology.hpp` | CPU budget, core classes and caches, thread affinity, cache line constants                                                                                     |
+| File     | `osprim/file.hpp`     | Open, positioned read and write, flush, size and identity, adoption of native handles, unbuffered I/O                                                          |
+| Region   | `osprim/region.hpp`   | Mapped regions of files                                                                                                                                        |
+| Path     | `osprim/path.hpp`     | Directory handles and operations relative to them: entry information, create, remove, rename, symlink targets, listing, canonical paths, the current directory |
+| Platform | `osprim/platform.hpp` | `OSPRIM_OS_*` and `OSPRIM_ARCH_*` macros                                                                                                                       |
 
 `osprim/osprim.hpp` includes everything.
 
@@ -235,6 +236,43 @@ A `file_handle` is the native handle: no state outside handle tracking, free to 
 
 
 **Regions** map a range of a file as memory. Any offset works, the range must lie inside the file, and the file handle may be closed right after mapping. Every failure becomes a crash, because a memory access has no error return: a device error, a file truncated by another program, or a full disk while writing into unreserved space (grow with `RESERVE` first). Map large read-only data on local storage; read everything else, and write saves with `file_write_at()`. Durable writes through a region take two steps: `region_flush()`, then `file_flush()` on a handle to the file.
+
+## Paths and directories
+
+| Your goal                                      | Use                                                  |
+| ---------------------------------------------- | ---------------------------------------------------- |
+| Work inside a directory without races          | `dir_open_at()`, then the `*_at` calls               |
+| Open a file in a directory                     | `file_open_at()`                                     |
+| What is this entry (type, size, identity)?     | `path_info_at()`                                     |
+| Create a directory                             | `dir_create_at()`                                    |
+| Remove a file, a symlink or an empty directory | `path_remove_at()`                                   |
+| Replace a file atomically (saves)              | `path_rename_at()` with `REPLACE` and `durable`      |
+| Rename without overwriting                     | `path_rename_at()` with `NO_REPLACE`                 |
+| List a directory                               | `dir_list_begin()`, `dir_list_next()`                |
+| Where a symlink points                         | `path_read_link_at()`                                |
+| The real path of an open file or directory     | `path_canonical()`                                   |
+| The current directory                          | `current_directory_get()`, `current_directory_set()` |
+
+**Every operation is relative to a directory handle** (or takes an absolute path with `NO_DIRECTORY`). A path is a name resolved again on every call, and what it names can change in between (editors, version control, sync clients, users, attackers: time-of-check to time-of-use races). So:
+- **Do not check, then act**: act and read the result. Creating, opening and renaming without replacing are atomic, and `ALREADY_EXISTS` or `NOT_FOUND` are results, not prior checks.
+- **Do not resolve a path twice**: open the directory once and name its entries relative to the handle. The handle stays on that directory even when it or its parents are renamed.
+- **Walking a tree** (removal, copy): open each directory with `PATH_RESOLVE_NO_SYMLINKS` and never recurse into a `SYMLINK` entry. This is the bug behind Rust's CVE-2022-21658 in `remove_dir_all`.
+- **Untrusted names** (mods, archives, user content): open the root normally, then use `PATH_RESOLVE_NO_SYMLINKS` for every name inside it. A relative name cannot climb above its handle (`..` is refused), so symlinks are the only way out; mount points are crossed in every mode. Ordinary absolute paths contain symlinks (`/var` on Apple, `/sdcard` on Android), so `NO_SYMLINKS` is meant for names relative to a trusted handle.
+
+|                          | Linux, Android                                                                                                     | Apple                        | Windows                                                                                                                                                                 |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------ | ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Relative operations      | `openat` family                                                                                                    | `openat` family              | `NtCreateFile` with a root directory; rename and delete by handle                                                                                                       |
+| `NO_SYMLINKS`            | `openat2` (5.6+), else one component at a time (always on Android, whose app seccomp filter may kill on `openat2`) | `O_NOFOLLOW_ANY`             | One component at a time; name surrogates refused, other reparse points (OneDrive placeholders, deduplicated, compressed files) reopened and checked to be the same file |
+| Rename without replacing | `renameat2` (Android 11+), else link then unlink (files)                                                           | `renameatx_np` `RENAME_EXCL` | Native                                                                                                                                                                  |
+| Durable rename           | `fsync` of both directories                                                                                        | `F_FULLFSYNC`                | Flush of the target directory                                                                                                                                           |
+| Removal                  | `unlinkat`                                                                                                         | `unlinkat`                   | POSIX semantics (the name disappears at once, even while open), read-only attribute ignored                                                                             |
+| Listing                  | `getdents64`                                                                                                       | `getattrlistbulk`            | `GetFileInformationByHandleEx`, at most 64 KiB per call                                                                                                                 |
+
+**Names relative to a handle**: components separated by `/` (and `\` on Windows), `.` skipped, `..` refused. On Windows, names Win32 cannot handle are refused (`NUL`, `COM1.txt`, a trailing dot or space, `< > : " | ? *`): a relative NT open would otherwise create entries most tools cannot open or delete.
+
+**Symlinks** are followed (`NORMAL`), detected (`SYMLINK` entries) or refused (`NO_SYMLINKS`), and their targets can be read; the library does not create them. On Windows, `SYMLINK` means a name surrogate: symbolic links, WSL symlinks and junctions; volume mount points are directories, and cloud placeholders are ordinary files (no download is ever triggered). Removing or renaming a link acts on the link; a directory link is removed with `PATH_KIND_FILE` on every platform.
+
+**Listing** uses a buffer the caller owns (`dir_reader`), at least `DIR_LIST_MIN_BUFFER` (one entry with the longest name: 792 bytes on Linux, 808 on Apple, 616 on Windows). Locally any size from 4 KiB lists at the same speed; on network shares and FUSE each call can be a round trip, so `DIR_LIST_RECOMMENDED_BUFFER` is 32 KiB (64 KiB on Windows, the most Windows 8.1 and earlier accept on network shares). Listings are unordered and not snapshots; on Linux, names are raw bytes and may not be UTF-8.
 
 ## Supported targets
 
