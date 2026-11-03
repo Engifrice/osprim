@@ -35,16 +35,16 @@ endif()
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Android")
   set(_osprim_platform 2)
-  set(_osprim_platform_sources src/clock_linux.cpp src/wait_linux.cpp src/thread_posix.cpp src/power_linux.cpp src/topology_linux.cpp src/file_posix.cpp)
+  set(_osprim_platform_sources src/clock_linux.cpp src/wait_linux.cpp src/thread_posix.cpp src/power_linux.cpp src/topology_linux.cpp src/file_posix.cpp src/path_posix.cpp)
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
   set(_osprim_platform 1)
-  set(_osprim_platform_sources src/clock_linux.cpp src/wait_linux.cpp src/thread_posix.cpp src/power_linux.cpp src/topology_linux.cpp src/file_posix.cpp)
+  set(_osprim_platform_sources src/clock_linux.cpp src/wait_linux.cpp src/thread_posix.cpp src/power_linux.cpp src/topology_linux.cpp src/file_posix.cpp src/path_posix.cpp)
 elseif(WIN32)
   set(_osprim_platform 3)
-  set(_osprim_platform_sources src/clock_windows.cpp src/wait_windows.cpp src/thread_windows.cpp src/power_windows.cpp src/topology_windows.cpp src/file_windows.cpp)
+  set(_osprim_platform_sources src/clock_windows.cpp src/wait_windows.cpp src/thread_windows.cpp src/power_windows.cpp src/topology_windows.cpp src/file_windows.cpp src/path_windows.cpp)
 elseif(APPLE)
   set(_osprim_platform 4)
-  set(_osprim_platform_sources src/clock_apple.cpp src/wait_apple.cpp src/thread_posix.cpp src/power_apple.cpp src/topology_apple.cpp src/file_posix.cpp)
+  set(_osprim_platform_sources src/clock_apple.cpp src/wait_apple.cpp src/thread_posix.cpp src/power_apple.cpp src/topology_apple.cpp src/file_posix.cpp src/path_posix.cpp)
 else()
   message(FATAL_ERROR "osprim: unsupported system '${CMAKE_SYSTEM_NAME}'")
 endif()
@@ -60,6 +60,7 @@ add_library(osprim STATIC
   include/osprim/platform.hpp
   include/osprim/clock.hpp
   include/osprim/file.hpp
+  include/osprim/path.hpp
   include/osprim/region.hpp
   include/osprim/wait.hpp
   include/osprim/thread.hpp
@@ -72,6 +73,7 @@ add_library(osprim STATIC
   src/base.cpp
   src/clock.cpp
   src/file.cpp
+  src/path.cpp
   src/thread.cpp
   src/power.cpp
   src/topology.cpp
