@@ -40,8 +40,8 @@
  *   they can be renamed or deleted while open, as on POSIX. Handles are
  *   overlapped; the library waits internally, so calls stay blocking.
  *   Paths are normalized (GetFullPathNameW: / becomes \, . and .. are
- *   resolved, Win32 name rules apply) and given the \\?\ prefix,
- *   so the 260-character limit never applies. file_open() uses
+ *   resolved, Win32 name rules apply) and given the \\?\
+ *   prefix, so the 260-character limit never applies. file_open() uses
  *   about 16 KiB of stack there (two UTF-16 path buffers).
  *
  * Durability and write failures (Linux drops the data of failed
@@ -213,6 +213,7 @@ namespace osprim
       FILE_OPEN_ALREADY_EXISTS, ///< CREATE_NEW and the file exists
       FILE_OPEN_ACCESS_DENIED, ///< Permissions, read-only filesystem, iOS data protection
       FILE_OPEN_NOT_A_FILE, ///< Directory, device (including Windows NUL), pipe, socket
+      FILE_OPEN_SYMLINK, ///< file_open_at() with NO_SYMLINKS and a symlink in the name
       FILE_OPEN_INVALID_PATH, ///< Not UTF-8, embedded NUL, character refused by the filesystem
       FILE_OPEN_PATH_NOT_ABSOLUTE, ///< Relative, drive-relative (C:x) or rooted (\x) path
       FILE_OPEN_PATH_TOO_LONG, ///< Above MAX_PATH_BYTES, or a name too long for the filesystem
