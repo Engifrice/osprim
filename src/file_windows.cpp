@@ -20,6 +20,7 @@
   #error "file_windows.cpp is for Windows only"
 #endif
 
+#include "nt.hpp"
 #include "win32.hpp"
 
 #include <string.h>
@@ -127,24 +128,7 @@ namespace osprim
       /* NATIVE QUERIES            */
       /*****************************/
 
-      /// @brief IO_STATUS_BLOCK, without winternl.h.
-      struct io_status_block
-      {
-        union
-        {
-          LONG Status;
-          PVOID Pointer;
-        };
-        ULONG_PTR Information;
-      };
-
-      using nt_query_information_file_fn =
-          LONG(NTAPI*)(HANDLE, io_status_block*, PVOID, ULONG, ULONG);
-
-      constexpr ULONG FILE_MODE_INFORMATION_CLASS         = 16;
       constexpr ULONG FILE_NO_INTERMEDIATE_BUFFERING_FLAG = 0x00000008;
-
-      nt_query_information_file_fn g_nt_query_information_file = nullptr;
 
       int64_t filetime_ns(FILETIME ft) noexcept
       {
@@ -170,6 +154,8 @@ namespace osprim
 
     namespace detail
     {
+      nt_api g_nt{};
+
       /*****************************/
       /* EVENTS                    */
       /*****************************/
@@ -232,9 +218,13 @@ namespace osprim
         *granularity =
             si.dwAllocationGranularity != 0 ? si.dwAllocationGranularity : 65536;
         if (const HMODULE ntdll = ::GetModuleHandleW(L"ntdll.dll"))
-          g_nt_query_information_file =
+        {
+          g_nt.query_information_file =
               reinterpret_cast<nt_query_information_file_fn>(reinterpret_cast<void*>(
                   ::GetProcAddress(ntdll, "NtQueryInformationFile")));
+          g_nt.create_file = reinterpret_cast<nt_create_file_fn>(
+              reinterpret_cast<void*>(::GetProcAddress(ntdll, "NtCreateFile")));
+        }
       }
 
       void platform_file_deinitialize() noexcept
@@ -477,10 +467,10 @@ namespace osprim
         {
           *unbuffered = false;
           ULONG mode  = 0;
-          io_status_block iosb{};
-          if (g_nt_query_information_file != nullptr
-              && g_nt_query_information_file(
-                     h, &iosb, &mode, sizeof(mode), FILE_MODE_INFORMATION_CLASS)
+          nt_io_status_block iosb{};
+          if (g_nt.query_information_file != nullptr
+              && g_nt.query_information_file(
+                     h, &iosb, &mode, sizeof(mode), NT_FILE_MODE_INFORMATION)
                      >= 0)
             *unbuffered = (mode & FILE_NO_INTERMEDIATE_BUFFERING_FLAG) != 0;
         }

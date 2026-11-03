@@ -167,6 +167,20 @@ namespace osprim
       {
         return g_page_size;
       }
+
+      void file_track_open(
+          native_file_t native, const file_open_desc& desc,
+          std::source_location loc) noexcept
+      {
+#if OSPRIM_TRACKING
+        const track_meta m = make_file_meta(
+            native, static_cast<uint64_t>(desc.access), desc.unbuffered);
+        track_open(FILE_TRACK_TYPE, file_key(native), loc, &m);
+#else
+        (void)desc;
+        track_open(FILE_TRACK_TYPE, file_key(native), loc);
+#endif
+      }
     } // namespace detail
 
     /*****************************/
@@ -201,13 +215,7 @@ namespace osprim
       if (!s.ok())
         return s;
       out.native = native;
-#if OSPRIM_TRACKING
-      const detail::track_meta m = make_file_meta(
-          native, static_cast<uint64_t>(desc.access), desc.unbuffered);
-      detail::track_open(detail::FILE_TRACK_TYPE, detail::file_key(native), loc, &m);
-#else
-      detail::track_open(detail::FILE_TRACK_TYPE, detail::file_key(native), loc);
-#endif
+      detail::file_track_open(native, desc, loc);
       return s;
     }
 

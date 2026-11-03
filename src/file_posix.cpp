@@ -181,16 +181,8 @@ namespace osprim
       {
       }
 
-      status<file_open_result> platform_file_open(
-          const char* path, size_t size, const file_open_desc& desc,
-          native_file_t* out) noexcept
+      int posix_file_flags(const file_open_desc& desc) noexcept
       {
-        if (path[0] != '/')
-          return fail(file_open_result::FILE_OPEN_PATH_NOT_ABSOLUTE);
-        char buffer[MAX_PATH_BYTES + 1];
-        ::memcpy(buffer, path, size);
-        buffer[size] = '\0';
-
         int flags = O_CLOEXEC | O_NOCTTY | O_NONBLOCK;
         switch (desc.access)
         {
@@ -225,14 +217,17 @@ namespace osprim
         if (desc.unbuffered)
           flags |= O_DIRECT;
 #endif
-        int fd = -1;
-        do
-        {
-          fd = ::open(buffer, flags, 0666);
-        } while (fd < 0 && errno == EINTR);
-        if (fd < 0)
-          return open_error(errno, desc.unbuffered);
+        return flags;
+      }
 
+      status<file_open_result> posix_open_error(int e, bool unbuffered) noexcept
+      {
+        return open_error(e, unbuffered);
+      }
+
+      status<file_open_result> posix_file_finish(
+          int fd, const file_open_desc& desc, native_file_t* out) noexcept
+      {
         struct stat st{};
         if (::fstat(fd, &st) != 0)
         {
@@ -264,6 +259,27 @@ namespace osprim
 #endif
         *out = fd;
         return {};
+      }
+
+      status<file_open_result> platform_file_open(
+          const char* path, size_t size, const file_open_desc& desc,
+          native_file_t* out) noexcept
+      {
+        if (path[0] != '/')
+          return fail(file_open_result::FILE_OPEN_PATH_NOT_ABSOLUTE);
+        char buffer[MAX_PATH_BYTES + 1];
+        ::memcpy(buffer, path, size);
+        buffer[size] = '\0';
+
+        const int flags = posix_file_flags(desc);
+        int fd          = -1;
+        do
+        {
+          fd = ::open(buffer, flags, 0666);
+        } while (fd < 0 && errno == EINTR);
+        if (fd < 0)
+          return open_error(errno, desc.unbuffered);
+        return posix_file_finish(fd, desc, out);
       }
 
       void platform_file_close(native_file_t native) noexcept

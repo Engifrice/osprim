@@ -13,6 +13,7 @@
 #include <osprim/base.hpp>
 #include <osprim/clock.hpp>
 #include <osprim/file.hpp>
+#include <osprim/path.hpp>
 #include <osprim/power.hpp>
 #include <osprim/region.hpp>
 #include <osprim/thread.hpp>
@@ -473,6 +474,102 @@ namespace osprim
           const char* path, size_t size, wchar_t* out, size_t capacity,
           bool* verbatim) noexcept;
 #endif
+
+      /*****************************/
+      /* PATHS                     */
+      /*****************************/
+
+      inline constexpr const char* DIR_TRACK_TYPE = "dir";
+
+      /// @brief The native directory handle as a tracking key.
+      inline uint64_t dir_key(native_dir_t native) noexcept
+      {
+#if OSPRIM_OS_WINDOWS
+        return static_cast<uint64_t>(reinterpret_cast<uintptr_t>(native));
+#else
+        return static_cast<uint64_t>(static_cast<int64_t>(native));
+#endif
+      }
+
+      /// @brief A name checked by path.cpp: either an absolute path as the
+      /// caller gave it (`absolute`, `dir` is NO_DIRECTORY), or a relative
+      /// name normalized to components joined by '/', without "." or empty
+      /// components and without ".." (`size` 0: the directory itself).
+      /// Always terminated.
+      struct path_ref
+      {
+        native_dir_t dir;
+        const char* name;
+        size_t size;
+        bool absolute;
+      };
+
+#if !OSPRIM_OS_WINDOWS
+      /// @brief open(2) flags for a file_open_desc (POSIX).
+      int posix_file_flags(const file_open_desc& desc) noexcept;
+      /// @brief Maps an open(2) errno (POSIX).
+      status<file_open_result> posix_open_error(int e, bool unbuffered) noexcept;
+      /// @brief Checks the type and applies the hints of a just-opened file
+      /// (POSIX); closes `fd` on failure.
+      status<file_open_result> posix_file_finish(
+          int fd, const file_open_desc& desc, native_file_t* out) noexcept;
+#endif
+
+      /// @brief Records a file opened with `desc` (file.cpp).
+      void file_track_open(
+          native_file_t native, const file_open_desc& desc,
+          std::source_location loc) noexcept;
+
+      /// @brief Copies `n` bytes into a caller buffer if they fit; `*needed` = n.
+      bool copy_out(
+          const char* src, size_t n, char* buffer, size_t capacity,
+          size_t* needed) noexcept;
+
+#if OSPRIM_OS_WINDOWS
+      /// @brief A name component a relative NT open would accept but Win32
+      /// tools cannot handle (device names, trailing dot or space, < > : " | ? *).
+      bool windows_component_refused(const char* c, size_t n) noexcept;
+#endif
+
+      // Implemented by the platform source (path_posix.cpp, path_windows.cpp)
+
+      status<dir_open_result> platform_dir_open(
+          const path_ref& p, path_resolve resolve, native_dir_t* out) noexcept;
+      void platform_dir_close(native_dir_t d) noexcept;
+      status<dir_adopt_result> platform_dir_adopt(native_dir_t d) noexcept;
+      /// @param p Never the directory itself
+      status<file_open_result> platform_file_open_at(
+          const path_ref& p, path_resolve resolve, const file_open_desc& desc,
+          native_file_t* out) noexcept;
+      status<path_info_result> platform_path_info(
+          const path_ref& p, path_resolve resolve, path_info* out) noexcept;
+      /// @param p Never the directory itself
+      status<dir_create_result> platform_dir_create(
+          const path_ref& p, path_resolve resolve, native_dir_t* out) noexcept;
+      /// @param p Never the directory itself
+      status<path_remove_result> platform_path_remove(
+          const path_ref& p, path_resolve resolve, path_kind kind) noexcept;
+      /// @param from, to Never a directory itself
+      status<path_rename_result> platform_path_rename(
+          const path_ref& from, const path_ref& to,
+          const path_rename_desc& desc) noexcept;
+      /// @param p Never the directory itself
+      status<path_read_link_result> platform_path_read_link(
+          const path_ref& p, path_resolve resolve, char* buffer, size_t capacity,
+          size_t* needed, link_info* info) noexcept;
+      status<dir_list_result> platform_dir_list_begin(
+          native_dir_t d, dir_reader& r) noexcept;
+      status<dir_list_result> platform_dir_list_next(
+          native_dir_t d, dir_reader& r, dir_entry* out) noexcept;
+      /// @param native A file or directory handle (the same native type)
+      status<path_canonical_result> platform_canonical(
+          native_file_t native, char* buffer, size_t capacity,
+          size_t* needed) noexcept;
+      status<current_directory_get_result> platform_current_directory_get(
+          char* buffer, size_t capacity, size_t* needed) noexcept;
+      /// @param path Absolute, terminated
+      status<current_directory_set_result> platform_current_directory_set(
+          const char* path, size_t size) noexcept;
 
       /*****************************/
       /* WAIT                      */
