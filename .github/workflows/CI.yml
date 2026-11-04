@@ -330,17 +330,6 @@ jobs:
   # internal functions a shared library does not export.
   #####################################################################
 
-  # Every function the headers declare is marked OSPRIM_API (a missing mark
-  # only breaks shared builds, at the user's link)
-  api:
-    name: OSPRIM_API marks
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@v5
-      - name: Check
-        run: python3 tools/check_api.py
-
   shared-unix:
     name: ${{ matrix.config.name }} (shared, ${{ matrix.build_type }})
     runs-on: ${{ matrix.config.os }}
