@@ -391,3 +391,47 @@ jobs:
 
       - name: Build
         run: cmake --build build --parallel
+    
+  # The iOS simulator runs the tests on the Mac's kernel, with the iOS SDK,
+  # frameworks and availability rules: device-only behavior (sandbox, data
+  # protection, memory limits) stays untested.
+  ios-simulator:
+    name: ios-simulator-arm64 (${{ matrix.build_type }})
+    runs-on: macos-15
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        build_type: [Debug, Release]
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Configure
+        run: >
+          cmake -S . -B build
+          -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
+          -DCMAKE_SYSTEM_NAME=iOS
+          -DCMAKE_OSX_SYSROOT=iphonesimulator
+          -DCMAKE_OSX_ARCHITECTURES=arm64
+          -DCMAKE_OSX_DEPLOYMENT_TARGET=17.4
+          -DOSPRIM_WARNINGS_AS_ERRORS=ON
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      - name: Boot a simulator
+        run: |
+          UDID=$(xcrun simctl list devices available -j | python3 -c '
+          import json, sys
+          devices = json.load(sys.stdin)["devices"]
+          ios = [(rt, d) for rt, ds in devices.items() if "iOS" in rt for d in ds if d["name"].startswith("iPhone")]
+          ios.sort(key=lambda x: x[0])
+          print(ios[-1][1]["udid"])')
+          echo "Simulator: $UDID"
+          echo "UDID=$UDID" >> "$GITHUB_ENV"
+          xcrun simctl bootstatus "$UDID" -b
+
+      - name: Test in the simulator
+        env:
+          SIMCTL_CHILD_TMPDIR: ${{ runner.temp }}
+        run: xcrun simctl spawn "$UDID" "$PWD/build/tests/osprim_tests"
