@@ -42,7 +42,6 @@
 #if OSPRIM_OS_APPLE
   #include <sys/attr.h>
   #include <sys/param.h>
-  #include <sys/vnode.h>
   #ifndef O_NOFOLLOW_ANY
     #define O_NOFOLLOW_ANY 0x20000000
   #endif
@@ -64,6 +63,13 @@ namespace osprim
   {
     namespace
     {
+#if OSPRIM_OS_APPLE
+      // enum vtype values of sys/vnode.h (not in the iOS SDK)
+      constexpr fsobj_type_t APPLE_VREG = 1;
+      constexpr fsobj_type_t APPLE_VDIR = 2;
+      constexpr fsobj_type_t APPLE_VLNK = 5;
+#endif
+
       template<class R>
       status<R> fail(R r, int err) noexcept
       {
@@ -811,10 +817,10 @@ namespace osprim
           {
             fsobj_type_t t = 0;
             ::memcpy(&t, field, sizeof(t));
-            type = t == VREG   ? path_type::PATH_TYPE_FILE
-                   : t == VDIR ? path_type::PATH_TYPE_DIRECTORY
-                   : t == VLNK ? path_type::PATH_TYPE_SYMLINK
-                               : path_type::PATH_TYPE_OTHER;
+            type = t == APPLE_VREG   ? path_type::PATH_TYPE_FILE
+                   : t == APPLE_VDIR ? path_type::PATH_TYPE_DIRECTORY
+                   : t == APPLE_VLNK ? path_type::PATH_TYPE_SYMLINK
+                                     : path_type::PATH_TYPE_OTHER;
           }
           r.internal_offset += length;
           --r.internal_end;

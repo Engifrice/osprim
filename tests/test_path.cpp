@@ -417,13 +417,6 @@ TEST_CASE("path: create, remove, kinds")
 
 TEST_CASE("path: rename")
 {
-#if OSPRIM_OS_WINDOWS
-  if (under_wine())
-  {
-    note("Wine 9 does not rename relative to a directory handle: skipped");
-    return;
-  }
-#endif
   session s;
   temp_dir dir;
   osprim::dir_handle root = open_dir_ok(NO_DIRECTORY, dir.root());
@@ -457,13 +450,23 @@ TEST_CASE("path: rename")
 
   // Replace, durably, over a file that is still open (POSIX semantics on Windows)
   osprim::file_handle open_target = create_at(root, "b", 2);
-  desc.mode                       = path_rename_mode::PATH_RENAME_MODE_REPLACE;
-  desc.durable                    = true;
-  const auto r                    = path_rename_at(root, "a", 1, root, "b", 1, desc);
+#if OSPRIM_OS_WINDOWS
+  if (under_wine()) // no POSIX semantics: an open target cannot be replaced
+  {
+    file_close(open_target);
+    open_target = osprim::file_handle{};
+  }
+#endif
+  desc.mode    = path_rename_mode::PATH_RENAME_MODE_REPLACE;
+  desc.durable = true;
+  const auto r = path_rename_at(root, "a", 1, root, "b", 1, desc);
   INFO("native " << r.native_code);
   CHECK(r.ok());
   CHECK(info_ok(root, "b", path_resolve::PATH_RESOLVE_NORMAL).size == 1);
-  file_close(open_target);
+#if OSPRIM_OS_WINDOWS
+  if (!under_wine())
+#endif
+    file_close(open_target);
 
   // Between directories, through two handles
   mkdir_at(root, "sub");
@@ -737,13 +740,6 @@ TEST_CASE("path: canonical paths and the current directory")
 
 TEST_CASE("path: a handle stays on its directory (TOCTOU)")
 {
-#if OSPRIM_OS_WINDOWS
-  if (under_wine())
-  {
-    note("Wine 9 does not rename relative to a directory handle: skipped");
-    return;
-  }
-#endif
   session s;
   temp_dir dir;
   osprim::dir_handle root = open_dir_ok(NO_DIRECTORY, dir.root());

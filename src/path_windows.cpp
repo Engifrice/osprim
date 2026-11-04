@@ -75,7 +75,6 @@ namespace osprim
       // FILE_INFO_BY_HANDLE_CLASS values (not every SDK defines the newer ones)
       constexpr int CLASS_BASIC               = 0;
       constexpr int CLASS_STANDARD            = 1;
-      constexpr int CLASS_RENAME              = 3;
       constexpr int CLASS_DISPOSITION         = 4;
       constexpr int CLASS_ATTRIBUTE_TAG       = 9;
       constexpr int CLASS_ID_BOTH_DIR         = 10;
@@ -86,7 +85,6 @@ namespace osprim
       constexpr int CLASS_ID_EXTD_DIR         = 19;
       constexpr int CLASS_ID_EXTD_DIR_RESTART = 20;
       constexpr int CLASS_DISPOSITION_EX      = 21;
-      constexpr int CLASS_RENAME_EX           = 22;
 
       constexpr DWORD DISPOSITION_DELETE          = 0x1;
       constexpr DWORD DISPOSITION_POSIX           = 0x2;
@@ -1164,8 +1162,8 @@ namespace osprim
             return fail_nt(R::PATH_RENAME_SYSTEM_ERROR, st);
           }
         };
-        wide_name wa;
-        wide_name wb;
+        wide_name wa{};
+        wide_name wb{};
         conv c = to_wide(from, &wa);
         if (c == conv::OK)
           c = to_wide(to, &wb);
@@ -1190,59 +1188,63 @@ namespace osprim
         if (!nt_ok(st))
           return nt_error(st);
 
+        // NtSetInformationFile, as Go does: the Win32 wrapper refuses some
+        // names relative to a root directory (ERROR_INVALID_PARAMETER)
         rename_info info{};
         info.RootDirectory  = pb.handle;
         info.FileNameLength = static_cast<DWORD>(pb.last_size * sizeof(wchar_t));
         ::memcpy(info.FileName, pb.last, pb.last_size * sizeof(wchar_t));
-        const DWORD size = static_cast<DWORD>(
-            offsetof(rename_info, FileName) + info.FileNameLength + sizeof(wchar_t));
+        const ULONG size   = static_cast<ULONG>(sizeof(info));
         const bool replace = desc.mode == path_rename_mode::PATH_RENAME_MODE_REPLACE;
         info.Flags =
             (replace ? RENAME_REPLACE_IF_EXISTS : 0) | RENAME_POSIX_SEMANTICS;
-        bool done =
-            ::SetFileInformationByHandle(h, info_class(CLASS_RENAME_EX), &info, size)
-            != 0;
-        DWORD e = done ? 0 : ::GetLastError();
-        if (!done
-            && (e == 0 || e == ERROR_INVALID_PARAMETER
-                || classify_win(e) == err::UNSUPPORTED))
+        nt_io_status_block iosb{};
+        st = g_nt.set_information_file != nullptr
+                 ? g_nt.set_information_file(
+                       h, &iosb, &info, size, NT_FILE_RENAME_INFORMATION_EX)
+                 : NT_STATUS_NOT_SUPPORTED;
+        if (st == NT_STATUS_INVALID_INFO_CLASS || st == NT_STATUS_INVALID_PARAMETER
+            || st == NT_STATUS_NOT_SUPPORTED)
         {
-          // Older Windows, FAT: the classic rename
+          // Before Windows 10 1607, FAT: the classic rename
           info.Flags           = 0;
           info.ReplaceIfExists = replace ? TRUE : FALSE;
-          done =
-              ::SetFileInformationByHandle(h, info_class(CLASS_RENAME), &info, size)
-              != 0;
-          e = done ? 0 : ::GetLastError();
+          st                   = g_nt.set_information_file != nullptr
+                                     ? g_nt.set_information_file(
+                                           h, &iosb, &info, size, NT_FILE_RENAME_INFORMATION)
+                                     : NT_STATUS_NOT_SUPPORTED;
         }
         ::CloseHandle(h);
-        if (!done)
+        if (!nt_ok(st))
         {
-          switch (classify_win(e))
+          switch (classify_nt(st))
           {
           case err::EXISTS:
-            return fail_win(
+            return fail_nt(
                 replace ? R::PATH_RENAME_ACCESS_DENIED
                         : R::PATH_RENAME_ALREADY_EXISTS,
-                e);
+                st);
           case err::NOT_FOUND:
-            return fail_win(R::PATH_RENAME_NOT_FOUND, e);
+          case err::NOT_DIR:
+            return fail_nt(R::PATH_RENAME_NOT_FOUND, st);
+          case err::IS_DIR:
+            return fail_nt(R::PATH_RENAME_WRONG_KIND, st);
           case err::NOT_EMPTY:
-            return fail_win(R::PATH_RENAME_NOT_EMPTY, e);
+            return fail_nt(R::PATH_RENAME_NOT_EMPTY, st);
           case err::CROSS:
-            return fail_win(R::PATH_RENAME_CROSS_DEVICE, e);
+            return fail_nt(R::PATH_RENAME_CROSS_DEVICE, st);
           case err::ACCESS:
-            return fail_win(R::PATH_RENAME_ACCESS_DENIED, e);
+            return fail_nt(R::PATH_RENAME_ACCESS_DENIED, st);
           case err::BUSY:
-            return fail_win(R::PATH_RENAME_BUSY, e);
+            return fail_nt(R::PATH_RENAME_BUSY, st);
           case err::INVALID:
-            return fail_win(R::PATH_RENAME_INVALID_PATH, e);
+            return fail_nt(R::PATH_RENAME_INVALID_PATH, st);
           case err::TOO_LONG:
-            return fail_win(R::PATH_RENAME_PATH_TOO_LONG, e);
+            return fail_nt(R::PATH_RENAME_PATH_TOO_LONG, st);
           case err::NO_SPACE:
-            return fail_win(R::PATH_RENAME_NO_SPACE, e);
+            return fail_nt(R::PATH_RENAME_NO_SPACE, st);
           default:
-            return fail_win(R::PATH_RENAME_SYSTEM_ERROR, e);
+            return fail_nt(R::PATH_RENAME_SYSTEM_ERROR, st);
           }
         }
 

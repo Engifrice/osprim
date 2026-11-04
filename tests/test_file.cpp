@@ -3,6 +3,10 @@
  * @brief  Files: open, positioned I/O, end of file, growth, info,
  * adoption, unbuffered I/O, limits and tracking.
  *********************************************************************/
+#if defined(_WIN32) && !defined(_CRT_SECURE_NO_WARNINGS)
+  #define _CRT_SECURE_NO_WARNINGS // getenv
+#endif
+
 #include "files.hpp"
 #include "internal.hpp"
 #include "support.hpp"
@@ -31,7 +35,8 @@ using namespace osprim_test;
 namespace
 {
   status<file_open_result> try_open(
-      const std::string& p, file_access access, file_disposition disposition, osprim::file_handle& h)
+      const std::string& p, file_access access, file_disposition disposition,
+      osprim::file_handle& h)
   {
     file_open_desc desc;
     desc.access      = access;
@@ -39,14 +44,17 @@ namespace
     return file_open(p.data(), p.size(), desc, h);
   }
 
-  file_open_result open_result(const std::string& p, file_access access, file_disposition disposition)
+  file_open_result open_result(
+      const std::string& p, file_access access, file_disposition disposition)
   {
     osprim::file_handle h{};
     const auto s = try_open(p, access, disposition, h);
     if (s.ok())
       file_close(h);
     else
-      note("open: result %d, native code %d", static_cast<int>(s.result), s.native_code);
+      note(
+          "open: result %d, native code %d", static_cast<int>(s.result),
+          s.native_code);
     return s.result;
   }
 
@@ -90,19 +98,19 @@ TEST_CASE("file: limits")
 TEST_CASE("file: UTF-8 validation")
 {
   CHECK(detail::utf8_valid("abc", 3));
-  CHECK(detail::utf8_valid("\xc3\xa9", 2));         // e acute
-  CHECK(detail::utf8_valid("\xe2\x82\xac", 3));     // euro sign
-  CHECK(detail::utf8_valid("\xf0\x9f\x98\x80", 4)); // emoji
-  CHECK(detail::utf8_valid("\xf4\x8f\xbf\xbf", 4)); // U+10FFFF
-  CHECK_FALSE(detail::utf8_valid("a\0b", 3));       // embedded NUL
-  CHECK_FALSE(detail::utf8_valid("\xc0\xaf", 2));   // overlong
-  CHECK_FALSE(detail::utf8_valid("\xe0\x80\xaf", 3)); // overlong
+  CHECK(detail::utf8_valid("\xc3\xa9", 2));               // e acute
+  CHECK(detail::utf8_valid("\xe2\x82\xac", 3));           // euro sign
+  CHECK(detail::utf8_valid("\xf0\x9f\x98\x80", 4));       // emoji
+  CHECK(detail::utf8_valid("\xf4\x8f\xbf\xbf", 4));       // U+10FFFF
+  CHECK_FALSE(detail::utf8_valid("a\0b", 3));             // embedded NUL
+  CHECK_FALSE(detail::utf8_valid("\xc0\xaf", 2));         // overlong
+  CHECK_FALSE(detail::utf8_valid("\xe0\x80\xaf", 3));     // overlong
   CHECK_FALSE(detail::utf8_valid("\xf0\x80\x80\xaf", 4)); // overlong
-  CHECK_FALSE(detail::utf8_valid("\xed\xa0\x80", 3)); // surrogate
+  CHECK_FALSE(detail::utf8_valid("\xed\xa0\x80", 3));     // surrogate
   CHECK_FALSE(detail::utf8_valid("\xf4\x90\x80\x80", 4)); // above U+10FFFF
-  CHECK_FALSE(detail::utf8_valid("\xc3", 1));       // truncated
-  CHECK_FALSE(detail::utf8_valid("\xe2\x82", 2));   // truncated
-  CHECK_FALSE(detail::utf8_valid("\x80", 1));       // stray continuation
+  CHECK_FALSE(detail::utf8_valid("\xc3", 1));             // truncated
+  CHECK_FALSE(detail::utf8_valid("\xe2\x82", 2));         // truncated
+  CHECK_FALSE(detail::utf8_valid("\x80", 1));             // stray continuation
   CHECK_FALSE(detail::utf8_valid("\xff", 1));
 }
 
@@ -110,15 +118,15 @@ TEST_CASE("file: round trip, end of file and short reads")
 {
   session s;
   temp_dir dir;
-  const std::string p = dir.path("roundtrip.bin");
-  osprim::file_handle h       = make_pattern_file(p, 10);
+  const std::string p   = dir.path("roundtrip.bin");
+  osprim::file_handle h = make_pattern_file(p, 10);
   CHECK(size_of(h) == 10);
 
   CHECK(read_all(h, 0, 100).size() == 10); // short only at the end
   CHECK(has_pattern(read_all(h, 0, 10).data(), 10, 0));
   CHECK(read_all(h, 5, 5).size() == 5);
   CHECK(has_pattern(read_all(h, 5, 5).data(), 5, 5));
-  CHECK(read_all(h, 10, 5).empty()); // at the end: 0, not an error
+  CHECK(read_all(h, 10, 5).empty());        // at the end: 0, not an error
   CHECK(read_all(h, 1'000'000, 5).empty()); // past the end: 0
   CHECK(read_all(h, 0, 0).empty());
 
@@ -159,17 +167,28 @@ TEST_CASE("file: dispositions")
   using R             = file_open_result;
 
   // Missing
-  CHECK(open_result(p, A::FILE_ACCESS_READ, D::FILE_DISPOSITION_OPEN_EXISTING) == R::FILE_OPEN_NOT_FOUND);
-  CHECK(open_result(p, A::FILE_ACCESS_WRITE, D::FILE_DISPOSITION_TRUNCATE_EXISTING) == R::FILE_OPEN_NOT_FOUND);
-  CHECK(open_result(p, A::FILE_ACCESS_WRITE, D::FILE_DISPOSITION_CREATE_NEW) == R::FILE_OPEN_OK);
+  CHECK(
+      open_result(p, A::FILE_ACCESS_READ, D::FILE_DISPOSITION_OPEN_EXISTING)
+      == R::FILE_OPEN_NOT_FOUND);
+  CHECK(
+      open_result(p, A::FILE_ACCESS_WRITE, D::FILE_DISPOSITION_TRUNCATE_EXISTING)
+      == R::FILE_OPEN_NOT_FOUND);
+  CHECK(
+      open_result(p, A::FILE_ACCESS_WRITE, D::FILE_DISPOSITION_CREATE_NEW)
+      == R::FILE_OPEN_OK);
 
   // Exists (empty)
-  CHECK(open_result(p, A::FILE_ACCESS_WRITE, D::FILE_DISPOSITION_CREATE_NEW) == R::FILE_OPEN_ALREADY_EXISTS);
-  CHECK(open_result(p, A::FILE_ACCESS_READ, D::FILE_DISPOSITION_OPEN_EXISTING) == R::FILE_OPEN_OK);
+  CHECK(
+      open_result(p, A::FILE_ACCESS_WRITE, D::FILE_DISPOSITION_CREATE_NEW)
+      == R::FILE_OPEN_ALREADY_EXISTS);
+  CHECK(
+      open_result(p, A::FILE_ACCESS_READ, D::FILE_DISPOSITION_OPEN_EXISTING)
+      == R::FILE_OPEN_OK);
 
   // OPEN_OR_CREATE keeps the content, CREATE_OR_TRUNCATE and TRUNCATE_EXISTING drop it
   file_close(make_pattern_file(p, 100));
-  osprim::file_handle h = open_ok(p, A::FILE_ACCESS_READ_WRITE, D::FILE_DISPOSITION_OPEN_OR_CREATE);
+  osprim::file_handle h =
+      open_ok(p, A::FILE_ACCESS_READ_WRITE, D::FILE_DISPOSITION_OPEN_OR_CREATE);
   CHECK(size_of(h) == 100);
   file_close(h);
   h = open_ok(p, A::FILE_ACCESS_WRITE, D::FILE_DISPOSITION_TRUNCATE_EXISTING);
@@ -181,7 +200,7 @@ TEST_CASE("file: dispositions")
   file_close(h);
 
   const std::string q = dir.path("created.bin");
-  h                   = open_ok(q, A::FILE_ACCESS_READ, D::FILE_DISPOSITION_OPEN_OR_CREATE);
+  h = open_ok(q, A::FILE_ACCESS_READ, D::FILE_DISPOSITION_OPEN_OR_CREATE);
   CHECK(size_of(h) == 0);
   file_close(h);
 }
@@ -194,29 +213,49 @@ TEST_CASE("file: path checks")
   using D = file_disposition;
   using R = file_open_result;
 
-  CHECK(open_result("relative/file.bin", A::FILE_ACCESS_READ, D::FILE_DISPOSITION_OPEN_EXISTING)
-        == R::FILE_OPEN_PATH_NOT_ABSOLUTE);
-  CHECK(open_result(dir.root() + temp_dir::sep() + "bad\xff.bin", A::FILE_ACCESS_READ,
-                    D::FILE_DISPOSITION_OPEN_EXISTING)
-        == R::FILE_OPEN_INVALID_PATH);
-  CHECK(open_result(dir.root() + temp_dir::sep() + std::string("nul\0in.bin", 10), A::FILE_ACCESS_READ,
-                    D::FILE_DISPOSITION_OPEN_EXISTING)
-        == R::FILE_OPEN_INVALID_PATH);
-  CHECK(open_result(dir.root() + temp_dir::sep() + std::string(MAX_PATH_BYTES, 'a'), A::FILE_ACCESS_READ,
-                    D::FILE_DISPOSITION_OPEN_EXISTING)
-        == R::FILE_OPEN_PATH_TOO_LONG);
-  CHECK(open_result(dir.path("missing") + temp_dir::sep() + "file.bin", A::FILE_ACCESS_READ,
-                    D::FILE_DISPOSITION_OPEN_OR_CREATE)
-        == R::FILE_OPEN_NOT_FOUND);
+  CHECK(
+      open_result(
+          "relative/file.bin", A::FILE_ACCESS_READ,
+          D::FILE_DISPOSITION_OPEN_EXISTING)
+      == R::FILE_OPEN_PATH_NOT_ABSOLUTE);
+  CHECK(
+      open_result(
+          dir.root() + temp_dir::sep() + "bad\xff.bin", A::FILE_ACCESS_READ,
+          D::FILE_DISPOSITION_OPEN_EXISTING)
+      == R::FILE_OPEN_INVALID_PATH);
+  CHECK(
+      open_result(
+          dir.root() + temp_dir::sep() + std::string("nul\0in.bin", 10),
+          A::FILE_ACCESS_READ, D::FILE_DISPOSITION_OPEN_EXISTING)
+      == R::FILE_OPEN_INVALID_PATH);
+  CHECK(
+      open_result(
+          dir.root() + temp_dir::sep() + std::string(MAX_PATH_BYTES, 'a'),
+          A::FILE_ACCESS_READ, D::FILE_DISPOSITION_OPEN_EXISTING)
+      == R::FILE_OPEN_PATH_TOO_LONG);
+  CHECK(
+      open_result(
+          dir.path("missing") + temp_dir::sep() + "file.bin", A::FILE_ACCESS_READ,
+          D::FILE_DISPOSITION_OPEN_OR_CREATE)
+      == R::FILE_OPEN_NOT_FOUND);
 
   // Directories are refused
-  CHECK(open_result(dir.root(), A::FILE_ACCESS_READ, D::FILE_DISPOSITION_OPEN_EXISTING) == R::FILE_OPEN_NOT_A_FILE);
-  CHECK(open_result(dir.root(), A::FILE_ACCESS_WRITE, D::FILE_DISPOSITION_OPEN_EXISTING) == R::FILE_OPEN_NOT_A_FILE);
+  CHECK(
+      open_result(dir.root(), A::FILE_ACCESS_READ, D::FILE_DISPOSITION_OPEN_EXISTING)
+      == R::FILE_OPEN_NOT_A_FILE);
+  CHECK(
+      open_result(
+          dir.root(), A::FILE_ACCESS_WRITE, D::FILE_DISPOSITION_OPEN_EXISTING)
+      == R::FILE_OPEN_NOT_A_FILE);
 
   // A UTF-8 name works
   const std::string utf8 = dir.path("caf\xc3\xa9_\xe2\x82\xac.bin");
-  CHECK(open_result(utf8, A::FILE_ACCESS_WRITE, D::FILE_DISPOSITION_CREATE_NEW) == R::FILE_OPEN_OK);
-  CHECK(open_result(utf8, A::FILE_ACCESS_READ, D::FILE_DISPOSITION_OPEN_EXISTING) == R::FILE_OPEN_OK);
+  CHECK(
+      open_result(utf8, A::FILE_ACCESS_WRITE, D::FILE_DISPOSITION_CREATE_NEW)
+      == R::FILE_OPEN_OK);
+  CHECK(
+      open_result(utf8, A::FILE_ACCESS_READ, D::FILE_DISPOSITION_OPEN_EXISTING)
+      == R::FILE_OPEN_OK);
 }
 
 TEST_CASE("file: long paths")
@@ -226,7 +265,8 @@ TEST_CASE("file: long paths")
   temp_dir dir;
   const std::string sub = dir.make_dir(std::string(200, 'd'));
   (void)sub;
-  const std::string p = dir.path(std::string(200, 'd') + temp_dir::sep() + std::string(200, 'f'));
+  const std::string p =
+      dir.path(std::string(200, 'd') + temp_dir::sep() + std::string(200, 'f'));
   REQUIRE(p.size() > 400);
   osprim::file_handle h = make_pattern_file(p, 16);
   CHECK(size_of(h) == 16);
@@ -243,7 +283,8 @@ TEST_CASE("file: Windows path conversion")
   bool verbatim = false;
   auto conv     = [&](const char* in) -> status<file_open_result>
   {
-    return detail::windows_file_path(in, ::strlen(in), out, MAX_PATH_BYTES + 16, &verbatim);
+    return detail::windows_file_path(
+        in, ::strlen(in), out, MAX_PATH_BYTES + 16, &verbatim);
   };
   using R = file_open_result;
 
@@ -263,7 +304,9 @@ TEST_CASE("file: Windows path conversion")
   CHECK(conv("relative").result == R::FILE_OPEN_PATH_NOT_ABSOLUTE);
   CHECK(conv("\\\\.\\NUL").result == R::FILE_OPEN_NOT_A_FILE);
   CHECK(conv("//./pipe/x").result == R::FILE_OPEN_NOT_A_FILE);
-  CHECK(conv("C:/somewhere/nul").result == R::FILE_OPEN_NOT_A_FILE); // NUL is reserved everywhere
+  CHECK(
+      conv("C:/somewhere/nul").result
+      == R::FILE_OPEN_NOT_A_FILE); // NUL is reserved everywhere
 }
 
 TEST_CASE("file: Windows event pool")
@@ -306,10 +349,16 @@ TEST_CASE("file: FIFOs are refused without blocking")
     return;
   }
   // Without O_NONBLOCK, both opens would block forever (no other end)
-  CHECK(open_result(p, file_access::FILE_ACCESS_READ, file_disposition::FILE_DISPOSITION_OPEN_EXISTING)
-        == file_open_result::FILE_OPEN_NOT_A_FILE);
-  CHECK(open_result(p, file_access::FILE_ACCESS_WRITE, file_disposition::FILE_DISPOSITION_OPEN_EXISTING)
-        == file_open_result::FILE_OPEN_NOT_A_FILE);
+  CHECK(
+      open_result(
+          p, file_access::FILE_ACCESS_READ,
+          file_disposition::FILE_DISPOSITION_OPEN_EXISTING)
+      == file_open_result::FILE_OPEN_NOT_A_FILE);
+  CHECK(
+      open_result(
+          p, file_access::FILE_ACCESS_WRITE,
+          file_disposition::FILE_DISPOSITION_OPEN_EXISTING)
+      == file_open_result::FILE_OPEN_NOT_A_FILE);
 }
 #endif
 
@@ -329,7 +378,8 @@ TEST_CASE("file: growth reads as zero")
   // FAST and RESERVE growth
   REQUIRE(file_set_size(h, 1 << 20, file_size_mode::FILE_SIZE_MODE_FAST).ok());
   CHECK(size_of(h) == 1 << 20);
-  CHECK(all_zero(read_all(h, 100'004, (1 << 20) - 100'004).data(), (1 << 20) - 100'004));
+  CHECK(all_zero(
+      read_all(h, 100'004, (1 << 20) - 100'004).data(), (1 << 20) - 100'004));
   const auto r = file_set_size(h, 2 << 20, file_size_mode::FILE_SIZE_MODE_RESERVE);
   if (r.result == file_set_size_result::FILE_SET_SIZE_UNSUPPORTED)
     note("RESERVE unsupported on this filesystem (native code %d)", r.native_code);
@@ -353,10 +403,10 @@ TEST_CASE("file: info and identity")
 {
   session s;
   temp_dir dir;
-  const std::string p = dir.path("info.bin");
-  osprim::file_handle a       = make_pattern_file(p, 1234);
-  osprim::file_handle b       = open_ok(p, file_access::FILE_ACCESS_READ);
-  osprim::file_handle c       = make_pattern_file(dir.path("other.bin"), 1);
+  const std::string p   = dir.path("info.bin");
+  osprim::file_handle a = make_pattern_file(p, 1234);
+  osprim::file_handle b = open_ok(p, file_access::FILE_ACCESS_READ);
+  osprim::file_handle c = make_pattern_file(dir.path("other.bin"), 1);
 
   file_info ia{};
   file_info ib{};
@@ -381,7 +431,7 @@ TEST_CASE("file: concurrent reads on one handle")
   session s;
   temp_dir dir;
   constexpr size_t SIZE = 1 << 20;
-  osprim::file_handle h         = make_pattern_file(dir.path("concurrent.bin"), SIZE);
+  osprim::file_handle h = make_pattern_file(dir.path("concurrent.bin"), SIZE);
   std::atomic<int> bad{0};
   std::vector<std::thread> threads;
   for (unsigned t = 0; t < 8; ++t)
@@ -398,7 +448,8 @@ TEST_CASE("file: concurrent reads on one handle")
             x ^= x << 17;
             const uint64_t offset = x % (SIZE - sizeof(buffer));
             size_t done           = 0;
-            if (!file_read_at(h, offset, buffer, sizeof(buffer), done).ok() || done != sizeof(buffer)
+            if (!file_read_at(h, offset, buffer, sizeof(buffer), done).ok()
+                || done != sizeof(buffer)
                 || !has_pattern(buffer, sizeof(buffer), offset))
               bad.fetch_add(1);
           }
@@ -420,8 +471,8 @@ TEST_CASE("file: adopt and release")
 #if OSPRIM_OS_WINDOWS
   // A synchronous handle (no FILE_FLAG_OVERLAPPED) works the same way
   const HANDLE native = ::CreateFileW(
-      widen(p).c_str(), GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
-      FILE_ATTRIBUTE_NORMAL, nullptr);
+      widen(p).c_str(), GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ, nullptr,
+      OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
   REQUIRE(native != INVALID_HANDLE_VALUE);
 #else
   const int native = ::open(p.c_str(), O_RDWR | O_CLOEXEC);
@@ -440,8 +491,8 @@ TEST_CASE("file: adopt and release")
   CHECK(::CloseHandle(native));
 
   const HANDLE d = ::CreateFileW(
-      widen(dir.root()).c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr,
-      OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, nullptr);
+      widen(dir.root()).c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE,
+      nullptr, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, nullptr);
   REQUIRE(d != INVALID_HANDLE_VALUE);
   CHECK(file_adopt(d, h).result == file_adopt_result::FILE_ADOPT_NOT_A_FILE);
   CHECK(::CloseHandle(d)); // ownership stayed with the caller
@@ -450,7 +501,8 @@ TEST_CASE("file: adopt and release")
 
   int pipe_fds[2];
   REQUIRE(::pipe(pipe_fds) == 0);
-  CHECK(file_adopt(pipe_fds[0], h).result == file_adopt_result::FILE_ADOPT_NOT_A_FILE);
+  CHECK(
+      file_adopt(pipe_fds[0], h).result == file_adopt_result::FILE_ADOPT_NOT_A_FILE);
   CHECK(::close(pipe_fds[0]) == 0); // ownership stayed with the caller
   CHECK(::close(pipe_fds[1]) == 0);
 
@@ -475,7 +527,8 @@ TEST_CASE("file: tracking")
     session s;
     osprim::file_handle h = make_pattern_file(dir.path("leak.bin"), 1);
     detail::track_meta m{};
-    REQUIRE(detail::track_get(detail::FILE_TRACK_TYPE, detail::file_key(h.native), &m));
+    REQUIRE(
+        detail::track_get(detail::FILE_TRACK_TYPE, detail::file_key(h.native), &m));
     CHECK(m.words[0] == static_cast<uint64_t>(file_access::FILE_ACCESS_READ_WRITE));
     CHECK(m.words[1] == 0);
     const diagnostic_log& log = s.end();
@@ -487,8 +540,8 @@ TEST_CASE("file: tracking")
   {
     // A released handle is not a leak
     session s;
-    osprim::file_handle h            = make_pattern_file(dir.path("released.bin"), 1);
-    const native_file_t n    = file_release(h);
+    osprim::file_handle h = make_pattern_file(dir.path("released.bin"), 1);
+    const native_file_t n = file_release(h);
     CHECK(detail::tracked_count() == 0);
     osprim::file_handle again{};
     REQUIRE(file_adopt(n, again).ok());
@@ -504,9 +557,9 @@ TEST_CASE("file: unbuffered I/O")
   session s;
   temp_dir dir;
   file_open_desc desc;
-  desc.access      = file_access::FILE_ACCESS_READ_WRITE;
-  desc.disposition = file_disposition::FILE_DISPOSITION_CREATE_OR_TRUNCATE;
-  desc.unbuffered  = true;
+  desc.access         = file_access::FILE_ACCESS_READ_WRITE;
+  desc.disposition    = file_disposition::FILE_DISPOSITION_CREATE_OR_TRUNCATE;
+  desc.unbuffered     = true;
   const std::string p = dir.path("unbuffered.bin");
   osprim::file_handle h{};
   const auto o = file_open(p.data(), p.size(), desc, h);
@@ -520,7 +573,9 @@ TEST_CASE("file: unbuffered I/O")
   const auto q = file_unbuffered_alignment(h, a);
   if (!q.ok())
   {
-    note("no unbuffered alignment here (result %d, native code %d)", static_cast<int>(q.result), q.native_code);
+    note(
+        "no unbuffered alignment here (result %d, native code %d)",
+        static_cast<int>(q.result), q.native_code);
     file_close(h);
     return;
   }
@@ -543,7 +598,8 @@ TEST_CASE("file: unbuffered I/O")
   CHECK(has_pattern(in.data(), 2 * block, 0));
 
   // The tail: write whole blocks, trim, read a whole block (short)
-  REQUIRE(file_set_size(h, 2 * block - 100, file_size_mode::FILE_SIZE_MODE_FAST).ok());
+  REQUIRE(
+      file_set_size(h, 2 * block - 100, file_size_mode::FILE_SIZE_MODE_FAST).ok());
   REQUIRE(file_read_at(h, block, in.data(), block, done).ok());
   CHECK(done == block - 100);
   CHECK(has_pattern(in.data(), block - 100, block));
@@ -566,7 +622,8 @@ TEST_CASE("file: unbuffered I/O")
     const auto r = file_read_at(h, 1, in.data(), block, done);
     CHECK(r.result == file_read_result::FILE_READ_MISALIGNED);
   #if defined(OSPRIM_TEST_USER_CONFIG)
-    CHECK(osprim_test_assert_failures.load() == before + (tracking_compiled ? 1 : 0));
+    CHECK(
+        osprim_test_assert_failures.load() == before + (tracking_compiled ? 1 : 0));
   #endif
   }
 #endif
@@ -581,7 +638,7 @@ TEST_CASE("file: adopted O_DIRECT handles are detected")
   session s;
   temp_dir dir;
   const std::string p = dir.path("direct.bin");
-  const int fd        = ::open(p.c_str(), O_RDWR | O_CREAT | O_DIRECT | O_CLOEXEC, 0600);
+  const int fd = ::open(p.c_str(), O_RDWR | O_CREAT | O_DIRECT | O_CLOEXEC, 0600);
   if (fd < 0)
   {
     note("O_DIRECT refused here (errno %d): skipped", errno);
@@ -616,7 +673,7 @@ TEST_CASE("file: FILE_TOO_LARGE (RLIMIT_FSIZE)")
   const unsigned char x = 1;
   size_t done           = 0;
   const auto w          = file_write_at(h, 65536, &x, 1, done);
-  const auto z          = file_set_size(h, 1 << 20, file_size_mode::FILE_SIZE_MODE_FAST);
+  const auto z = file_set_size(h, 1 << 20, file_size_mode::FILE_SIZE_MODE_FAST);
 
   REQUIRE(::setrlimit(RLIMIT_FSIZE, &old) == 0);
   REQUIRE(::sigaction(SIGXFSZ, &previous, nullptr) == 0);
@@ -661,10 +718,10 @@ TEST_CASE("file: access checks (user config)")
   temp_dir dir;
   const std::string p = dir.path("access.bin");
   file_close(make_pattern_file(p, 8));
-  osprim::file_handle w      = open_ok(p, file_access::FILE_ACCESS_WRITE);
-  const int before   = osprim_test_assert_failures.load();
-  unsigned char b[4] = {};
-  size_t done        = 0;
+  osprim::file_handle w = open_ok(p, file_access::FILE_ACCESS_WRITE);
+  const int before      = osprim_test_assert_failures.load();
+  unsigned char b[4]    = {};
+  size_t done           = 0;
   (void)file_read_at(w, 0, b, 4, done); // the OS refuses it too
   CHECK(osprim_test_assert_failures.load() == before + 1);
   file_close(w);
