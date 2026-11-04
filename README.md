@@ -6,18 +6,19 @@ osprim provides **mechanism, not policy**: the lowest-level building blocks, wit
 ## Status:
 [![CI](https://github.com/Engifrice/osprim/actions/workflows/CI.yml/badge.svg?branch=main&event=push)](https://github.com/Engifrice/osprim/actions/workflows/CI.yml)
 
-| Module   | Header                | Contents                                                                                                                                                       |
-| -------- | --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Base     | `osprim/base.hpp`     | Library lifetime, results, native errors, diagnostics (leak and misuse reports)                                                                                |
-| Clock    | `osprim/clock.hpp`    | Awake, continuous and wall clocks; raw tick counter                                                                                                            |
-| Wait     | `osprim/wait.hpp`     | Wait on an address until woken or an awake deadline; wake one or all                                                                                           |
-| Thread   | `osprim/thread.hpp`   | Create, join with a deadline, detach; ids, names, scheduling classes; yield, spin hint, precise sleep                                                          |
-| Power    | `osprim/power.hpp`    | Timer resolution, process activity, performance sessions, thermal state                                                                                        |
-| Topology | `osprim/topology.hpp` | CPU budget, core classes and caches, thread affinity, cache line constants                                                                                     |
-| File     | `osprim/file.hpp`     | Open, positioned read and write, flush, size and identity, adoption of native handles, unbuffered I/O                                                          |
-| Region   | `osprim/region.hpp`   | Mapped regions of files                                                                                                                                        |
-| Path     | `osprim/path.hpp`     | Directory handles and operations relative to them: entry information, create, remove, rename, symlink targets, listing, canonical paths, the current directory |
-| Platform | `osprim/platform.hpp` | `OSPRIM_OS_*` and `OSPRIM_ARCH_*` macros                                                                                                                       |
+| Module            | Header                | Contents                                                                                                                                                       |
+| ----------------- | --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Base              | `osprim/base.hpp`     | Library lifetime, results, native errors, diagnostics (leak and misuse reports)                                                                                |
+| Clock             | `osprim/clock.hpp`    | Awake, continuous and wall clocks; raw tick counter                                                                                                            |
+| Wait              | `osprim/wait.hpp`     | Wait on an address until woken or an awake deadline; wake one or all                                                                                           |
+| Thread            | `osprim/thread.hpp`   | Create, join with a deadline, detach; ids, names, scheduling classes; yield, spin hint, precise sleep                                                          |
+| Power             | `osprim/power.hpp`    | Timer resolution, process activity, performance sessions, thermal state                                                                                        |
+| Topology          | `osprim/topology.hpp` | CPU budget, core classes and caches, thread affinity, cache line constants                                                                                     |
+| File              | `osprim/file.hpp`     | Open, positioned read and write, flush, size and identity, adoption of native handles, unbuffered I/O                                                          |
+| Region            | `osprim/region.hpp`   | Mapped regions of files                                                                                                                                        |
+| Path              | `osprim/path.hpp`     | Directory handles and operations relative to them: entry information, create, remove, rename, symlink targets, listing, canonical paths, the current directory |
+| Dynamic libraries | `osprim/dynlib.hpp`   | Load by path or from the system, symbols, release                                                                                                              |
+| Platform          | `osprim/platform.hpp` | `OSPRIM_OS_*` and `OSPRIM_ARCH_*` macros                                                                                                                       |
 
 `osprim/osprim.hpp` includes everything.
 
@@ -274,6 +275,29 @@ A `file_handle` is the native handle: no state outside handle tracking, free to 
 
 **Listing** uses a buffer the caller owns (`dir_reader`), at least `DIR_LIST_MIN_BUFFER` (one entry with the longest name: 792 bytes on Linux, 808 on Apple, 616 on Windows). Locally any size from 4 KiB lists at the same speed; on network shares and FUSE each call can be a round trip, so `DIR_LIST_RECOMMENDED_BUFFER` is 32 KiB (64 KiB on Windows, the most Windows 8.1 and earlier accept on network shares). Listings are unordered and not snapshots; on Linux, names are raw bytes and may not be UTF-8.
 
+## Dynamic libraries
+
+| Your goal                                       | Use                                                       |
+| ----------------------------------------------- | --------------------------------------------------------- |
+| Load a plugin from a known file                 | `dynlib_open()` with `DYNLIB_SEARCH_PATH` (absolute path) |
+| Load a system library (Vulkan, `libandroid.so`) | `dynlib_open()` with `DYNLIB_SEARCH_SYSTEM` (bare name)   |
+| Find a function or variable                     | `dynlib_symbol()` (terminated name, or pointer and size)  |
+| Build a platform file name                      | `DYNLIB_PREFIX` + name + `DYNLIB_SUFFIX`                  |
+| Know why a load failed                          | `dynlib_open_desc::message`, a buffer you own             |
+
+A `dynlib_handle` is the native handle. **Loading a library again returns the same handle** with one more reference; every `dynlib_open()` needs its `dynlib_close()` (tracked builds count the references and report the leftovers as one leak). Symbols are bound at load time and stay local (`RTLD_NOW | RTLD_LOCAL`, the only behavior Windows has): a missing symbol fails the load instead of the first call, and one library never satisfies another's undeclared dependencies. Initializers run under the loader lock: never load or release a library from inside one.
+
+**Releasing does not guarantee unloading.**
+
+|                              | Linux, Android, Apple                                                            | Windows                                                                                                                                       |
+| ---------------------------- | -------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `PATH`                       | `dlopen` of the absolute path; dependencies through its `RUNPATH` / `@rpath`     | `LoadLibraryExW` with `LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR` and `_DEFAULT_DIRS`: dependencies from the library's directory, then the system      |
+| `SYSTEM`                     | `dlopen` of the bare name (the loader's search)                                  | `LOAD_LIBRARY_SEARCH_DEFAULT_DIRS`: the application directory, System32, `AddDllDirectory` directories; never the current directory or `PATH` |
+| Message                      | `dlerror()`, names a missing dependency                                          | The system message for the error code                                                                                                         |
+| `NOT_FOUND`, `ACCESS_DENIED` | The file itself is missing or unreadable (a missing dependency is `LOAD_FAILED`) | The same                                                                                                                                      |
+
+Platform rules: iOS loads only signed libraries inside the app bundle (`Frameworks/`) or the OS, never downloaded code. Android loads only the app's own libraries and the public NDK ones; uncompressed, page-aligned libraries load straight from the APK (`base.apk!/lib/arm64-v8a/libx.so`).
+
 ## Supported targets
 
 | Platform              | Architectures     | Toolchains     | CI                                  |
@@ -282,7 +306,7 @@ A `file_handle` is the native handle: no state outside handle tracking, free to 
 | Windows               | x86-64, arm64     | MSVC, clang-cl | tests                               |
 | macOS 14.4+           | arm64, x86-64     | Apple Clang    | tests, ASan+UBSan, TSan (arm64)     |
 | Android 8.0+ (API 26) | arm64-v8a, x86_64 | NDK Clang      | build, tests on the x86_64 emulator |
-| iOS 17.4+             | arm64             | Apple Clang    | build                               |
+| iOS 17.4+             | arm64             | Apple Clang    | build, tests in the simulator       |
 
 64-bit only. The Apple minimums come from `os_sync_wait_on_address` (a build for an older deployment target stops with an error). On Windows, osprim links `synchronization.lib` and `winmm.lib`; on Apple, Foundation and the Objective-C runtime; on Android, libandroid is loaded at run time.
 
