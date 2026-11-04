@@ -19,6 +19,36 @@ endif()
 
 find_package(Threads REQUIRED)
 
+if(OSPRIM_SHARED)
+  # The internal functions the main suite drives (tracking registry, tick
+  # conversion, parsers) are not exported from the shared library: the
+  # shared build runs its own tests, through the public API only (the
+  # static builds run the main suite).
+  add_library(osprim_shared_plugin SHARED shared_plugin.cpp)
+  target_link_libraries(osprim_shared_plugin PRIVATE osprim::osprim)
+  set_target_properties(osprim_shared_plugin PROPERTIES CXX_EXTENSIONS OFF)
+
+  add_executable(osprim_tests main.cpp support.hpp files.hpp test_shared.cpp)
+  target_link_libraries(osprim_tests PRIVATE
+    osprim::osprim osprim_shared_plugin doctest::doctest Threads::Threads)
+  target_compile_features(osprim_tests PRIVATE cxx_std_20)
+  set_target_properties(osprim_tests PROPERTIES CXX_EXTENSIONS OFF)
+  if(MSVC)
+    target_compile_options(osprim_tests PRIVATE /W4 /permissive-)
+  else()
+    target_compile_options(osprim_tests PRIVATE -Wall -Wextra -Wpedantic)
+  endif()
+  if(WIN32)
+    # Windows finds DLLs next to the executable: copy osprim and the plugin there
+    add_custom_command(TARGET osprim_tests POST_BUILD
+      COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        $<TARGET_RUNTIME_DLLS:osprim_tests> $<TARGET_FILE_DIR:osprim_tests>
+      COMMAND_EXPAND_LISTS
+    )
+  endif()
+  return()
+endif()
+
 # The shared library the dynamic library tests load. Named as DYNLIB_PREFIX
 # and DYNLIB_SUFFIX say (MinGW would otherwise prefix "lib" on Windows).
 add_library(osprim_test_plugin SHARED plugin.cpp)
