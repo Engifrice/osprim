@@ -280,15 +280,19 @@ jobs:
 
   # The package installs, and a consumer finds it with find_package()
   install:
-    name: linux-x64-gcc (install)
+    name: linux-x64-gcc (install, shared=${{ matrix.shared }})
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        shared: [OFF, ON]
     steps:
       - uses: actions/checkout@v5
 
       - name: Build and install
         run: |
-          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DOSPRIM_BUILD_TESTS=OFF -DCMAKE_INSTALL_PREFIX=${{ runner.temp }}/prefix
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DOSPRIM_BUILD_TESTS=OFF -DOSPRIM_SHARED=${{ matrix.shared }} -DCMAKE_INSTALL_PREFIX=${{ runner.temp }}/prefix
           cmake --build build --parallel
           cmake --install build
 
@@ -317,6 +321,83 @@ jobs:
           cmake -S consumer -B consumer/build -DCMAKE_PREFIX_PATH=${{ runner.temp }}/prefix
           cmake --build consumer/build
           ./consumer/build/consumer
+
+  #####################################################################
+  # Shared library (OSPRIM_SHARED)
+  #
+  # The suite is the shared one (tests/test_shared.cpp): handles cross
+  # modules and both modules see one library state. The main suite needs
+  # internal functions a shared library does not export.
+  #####################################################################
+
+  # Every function the headers declare is marked OSPRIM_API (a missing mark
+  # only breaks shared builds, at the user's link)
+  api:
+    name: OSPRIM_API marks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+      - name: Check
+        run: python3 tools/check_api.py
+
+  shared-unix:
+    name: ${{ matrix.config.name }} (shared, ${{ matrix.build_type }})
+    runs-on: ${{ matrix.config.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        build_type: [Debug, Release]
+        config:
+          - { name: linux-x64-gcc,          os: ubuntu-24.04, cc: gcc,   cxx: g++,     cmake: '' }
+          - { name: linux-x64-clang,        os: ubuntu-24.04, cc: clang, cxx: clang++, cmake: '' }
+          - { name: macos-arm64-appleclang, os: macos-15,     cc: clang, cxx: clang++, cmake: -DCMAKE_OSX_DEPLOYMENT_TARGET=14.4 }
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Configure
+        run: >
+          cmake -S . -B build
+          -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
+          -DCMAKE_C_COMPILER=${{ matrix.config.cc }}
+          -DCMAKE_CXX_COMPILER=${{ matrix.config.cxx }}
+          -DOSPRIM_SHARED=ON
+          -DOSPRIM_WARNINGS_AS_ERRORS=ON
+          ${{ matrix.config.cmake }}
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      - name: Test
+        run: ./build/tests/osprim_tests
+
+  shared-windows:
+    name: ${{ matrix.config.name }} (shared, ${{ matrix.build_type }})
+    runs-on: windows-2025
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        build_type: [Debug, Release]
+        config:
+          - { name: windows-x64-msvc,     compiler: cl }
+          - { name: windows-x64-clang-cl, compiler: clang-cl }
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Configure and build
+        shell: cmd
+        run: |
+          for /f "usebackq delims=" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -property installationPath`) do set "VSPATH=%%i"
+          if not defined VSPATH (echo Visual Studio not found & exit /b 1)
+          call "%VSPATH%\VC\Auxiliary\Build\vcvarsall.bat" x64 || exit /b 1
+          if "${{ matrix.config.compiler }}"=="clang-cl" set "PATH=%VSPATH%\VC\Tools\Llvm\x64\bin;%PATH%"
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} -DCMAKE_C_COMPILER=${{ matrix.config.compiler }} -DCMAKE_CXX_COMPILER=${{ matrix.config.compiler }} -DOSPRIM_SHARED=ON -DOSPRIM_WARNINGS_AS_ERRORS=ON || exit /b 1
+          cmake --build build --parallel || exit /b 1
+
+      - name: Test
+        run: build\tests\osprim_tests.exe
 
   #####################################################################
   # Mobile
