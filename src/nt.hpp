@@ -54,12 +54,15 @@ namespace osprim
           LARGE_INTEGER*, ULONG, ULONG, ULONG, ULONG, PVOID, ULONG);
       using nt_query_information_file_fn =
           LONG(NTAPI*)(HANDLE, nt_io_status_block*, PVOID, ULONG, ULONG);
+      using nt_set_information_file_fn =
+          LONG(NTAPI*)(HANDLE, nt_io_status_block*, PVOID, ULONG, ULONG);
 
       /// @brief ntdll entry points (null if missing).
       struct nt_api
       {
         nt_create_file_fn create_file;
         nt_query_information_file_fn query_information_file;
+        nt_set_information_file_fn set_information_file;
       };
 
       extern nt_api g_nt;
@@ -87,11 +90,14 @@ namespace osprim
       constexpr ULONG NT_FILE_OPEN_REPARSE_POINT        = 0x00200000;
 
       // FILE_INFORMATION_CLASS (NtQueryInformationFile)
-      constexpr ULONG NT_FILE_MODE_INFORMATION = 16;
+      constexpr ULONG NT_FILE_RENAME_INFORMATION    = 10;
+      constexpr ULONG NT_FILE_MODE_INFORMATION      = 16;
+      constexpr ULONG NT_FILE_RENAME_INFORMATION_EX = 65;
 
       // NTSTATUS values
       constexpr LONG NT_STATUS_SUCCESS             = 0;
       constexpr LONG NT_STATUS_STOPPED_ON_SYMLINK  = static_cast<LONG>(0x8000002DL);
+      constexpr LONG NT_STATUS_INVALID_INFO_CLASS  = static_cast<LONG>(0xC0000003L);
       constexpr LONG NT_STATUS_NO_SUCH_FILE        = static_cast<LONG>(0xC000000FL);
       constexpr LONG NT_STATUS_INVALID_PARAMETER   = static_cast<LONG>(0xC000000DL);
       constexpr LONG NT_STATUS_ACCESS_DENIED       = static_cast<LONG>(0xC0000022L);

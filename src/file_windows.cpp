@@ -224,6 +224,9 @@ namespace osprim
                   ::GetProcAddress(ntdll, "NtQueryInformationFile")));
           g_nt.create_file = reinterpret_cast<nt_create_file_fn>(
               reinterpret_cast<void*>(::GetProcAddress(ntdll, "NtCreateFile")));
+          g_nt.set_information_file =
+              reinterpret_cast<nt_set_information_file_fn>(reinterpret_cast<void*>(
+                  ::GetProcAddress(ntdll, "NtSetInformationFile")));
         }
       }
 
