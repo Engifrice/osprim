@@ -9,6 +9,7 @@ project(osprim
 option(OSPRIM_BUILD_TESTS "Build the osprim tests" ${PROJECT_IS_TOP_LEVEL})
 option(OSPRIM_INSTALL "Generate the install target" ${PROJECT_IS_TOP_LEVEL})
 option(OSPRIM_WARNINGS_AS_ERRORS "Treat compiler warnings as errors" OFF)
+option(OSPRIM_SHARED "Build osprim as a shared library (static otherwise)" OFF)
 set(OSPRIM_TRACKING "AUTO" CACHE STRING
   "Compile handle tracking in: AUTO (Debug configurations only), ON or OFF")
 set_property(CACHE OSPRIM_TRACKING PROPERTY STRINGS AUTO ON OFF)
@@ -49,13 +50,19 @@ else()
   message(FATAL_ERROR "osprim: unsupported system '${CMAKE_SYSTEM_NAME}'")
 endif()
 
-message(STATUS "osprim: ${CMAKE_SYSTEM_NAME}, sources: ${_osprim_platform_sources}")
+message(STATUS "osprim: ${CMAKE_SYSTEM_NAME}, shared: ${OSPRIM_SHARED}, sources: ${_osprim_platform_sources}")
 
 #####################################################################
 # Library
 #####################################################################
 
-add_library(osprim STATIC
+if(OSPRIM_SHARED)
+  set(_osprim_library_type SHARED)
+else()
+  set(_osprim_library_type STATIC)
+endif()
+
+add_library(osprim ${_osprim_library_type}
   include/osprim/base.hpp
   include/osprim/platform.hpp
   include/osprim/clock.hpp
@@ -92,6 +99,18 @@ target_include_directories(osprim
 )
 target_compile_features(osprim PUBLIC cxx_std_20)
 target_compile_definitions(osprim PRIVATE OSPRIM_CMAKE_PLATFORM=${_osprim_platform})
+# OSPRIM_API: export from the library itself, import everywhere else.
+# OSPRIM_BUILDING is set in static builds too, for an OSPRIM_USER_CONFIG
+# that exports osprim from another shared library.
+target_compile_definitions(osprim PRIVATE OSPRIM_BUILDING=1)
+if(OSPRIM_SHARED)
+  target_compile_definitions(osprim PUBLIC OSPRIM_SHARED=1)
+  # 0.x: every minor version breaks the ABI
+  set_target_properties(osprim PROPERTIES
+    VERSION ${PROJECT_VERSION}
+    SOVERSION ${PROJECT_VERSION_MAJOR}.${PROJECT_VERSION_MINOR}
+  )
+endif()
 if(WIN32)
   # synchronization: WaitOnAddress, WakeByAddress*. winmm: timeBeginPeriod.
   target_link_libraries(osprim PUBLIC synchronization winmm)
@@ -125,7 +144,8 @@ if(OSPRIM_USER_CONFIG)
 endif()
 
 set_target_properties(osprim PROPERTIES
-  # the static library is meant to be linked into shared libraries too
+  # the static library is meant to be linked into shared libraries too;
+  # only OSPRIM_API functions are exported from a shared one
   POSITION_INDEPENDENT_CODE ON
   CXX_VISIBILITY_PRESET hidden
   VISIBILITY_INLINES_HIDDEN ON
