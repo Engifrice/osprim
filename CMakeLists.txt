@@ -35,16 +35,16 @@ endif()
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Android")
   set(_osprim_platform 2)
-  set(_osprim_platform_sources src/clock_linux.cpp src/wait_linux.cpp src/thread_posix.cpp src/power_linux.cpp src/topology_linux.cpp src/file_posix.cpp src/path_posix.cpp)
+  set(_osprim_platform_sources src/clock_linux.cpp src/wait_linux.cpp src/thread_posix.cpp src/power_linux.cpp src/topology_linux.cpp src/file_posix.cpp src/path_posix.cpp src/dynlib_posix.cpp)
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
   set(_osprim_platform 1)
-  set(_osprim_platform_sources src/clock_linux.cpp src/wait_linux.cpp src/thread_posix.cpp src/power_linux.cpp src/topology_linux.cpp src/file_posix.cpp src/path_posix.cpp)
+  set(_osprim_platform_sources src/clock_linux.cpp src/wait_linux.cpp src/thread_posix.cpp src/power_linux.cpp src/topology_linux.cpp src/file_posix.cpp src/path_posix.cpp src/dynlib_posix.cpp)
 elseif(WIN32)
   set(_osprim_platform 3)
-  set(_osprim_platform_sources src/clock_windows.cpp src/wait_windows.cpp src/thread_windows.cpp src/power_windows.cpp src/topology_windows.cpp src/file_windows.cpp src/path_windows.cpp)
+  set(_osprim_platform_sources src/clock_windows.cpp src/wait_windows.cpp src/thread_windows.cpp src/power_windows.cpp src/topology_windows.cpp src/file_windows.cpp src/path_windows.cpp src/dynlib_windows.cpp)
 elseif(APPLE)
   set(_osprim_platform 4)
-  set(_osprim_platform_sources src/clock_apple.cpp src/wait_apple.cpp src/thread_posix.cpp src/power_apple.cpp src/topology_apple.cpp src/file_posix.cpp src/path_posix.cpp)
+  set(_osprim_platform_sources src/clock_apple.cpp src/wait_apple.cpp src/thread_posix.cpp src/power_apple.cpp src/topology_apple.cpp src/file_posix.cpp src/path_posix.cpp src/dynlib_posix.cpp)
 else()
   message(FATAL_ERROR "osprim: unsupported system '${CMAKE_SYSTEM_NAME}'")
 endif()
@@ -59,6 +59,7 @@ add_library(osprim STATIC
   include/osprim/base.hpp
   include/osprim/platform.hpp
   include/osprim/clock.hpp
+  include/osprim/dynlib.hpp
   include/osprim/file.hpp
   include/osprim/path.hpp
   include/osprim/region.hpp
@@ -72,6 +73,7 @@ add_library(osprim STATIC
   src/win32.hpp
   src/base.cpp
   src/clock.cpp
+  src/dynlib.cpp
   src/file.cpp
   src/path.cpp
   src/thread.cpp
@@ -98,8 +100,9 @@ elseif(APPLE)
   # thermal state. Blocks: the thermal notification handler.
   target_link_libraries(osprim PUBLIC "-framework Foundation" objc)
   target_compile_options(osprim PRIVATE -fblocks)
-elseif(CMAKE_SYSTEM_NAME STREQUAL "Android")
-  # dlopen of libandroid.so (performance hints, thermal)
+else()
+  # dlopen: dynamic libraries; on Android also libandroid.so (performance
+  # hints, thermal). Part of libc since glibc 2.34.
   target_link_libraries(osprim PUBLIC ${CMAKE_DL_LIBS})
 endif()
 
