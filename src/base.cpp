@@ -75,6 +75,8 @@ namespace osprim
         uint64_t native;
         std::source_location created_at;
         detail::track_meta meta;
+        /// @brief Opens not yet closed (above 1 only for shared handles)
+        uint32_t count;
       };
 
       struct registry
@@ -241,7 +243,7 @@ namespace osprim
             g_registry.incomplete = true;
           else
             g_registry.records[g_registry.count++] =
-                record{type, native, loc, meta != nullptr ? *meta : track_meta{}};
+                record{type, native, loc, meta != nullptr ? *meta : track_meta{}, 1};
         }
         if (duplicate)
           report(
@@ -261,6 +263,8 @@ namespace osprim
           const size_t i = find(type, native);
           if (i == g_registry.count)
             unknown = !g_registry.incomplete;
+          else if (g_registry.records[i].count > 1)
+            --g_registry.records[i].count; // a shared handle still opened elsewhere
           else
           {
             // Keep creation order: leaks are reported oldest first
@@ -283,6 +287,22 @@ namespace osprim
           return 0;
         registry_lock lock;
         return g_registry.count;
+      }
+
+      void track_open_shared(
+          const char* type, uint64_t native, std::source_location loc) noexcept
+      {
+        if (!g_lib.tracking)
+          return;
+        registry_lock lock;
+        const size_t i = find(type, native);
+        if (i != g_registry.count)
+          ++g_registry.records[i].count;
+        else if (g_registry.count == g_registry.capacity && !grow())
+          g_registry.incomplete = true;
+        else
+          g_registry.records[g_registry.count++] =
+              record{type, native, loc, track_meta{}, 1};
       }
 
       bool track_get(const char* type, uint64_t native, track_meta* out) noexcept

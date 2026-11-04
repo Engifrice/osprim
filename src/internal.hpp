@@ -12,6 +12,7 @@
 
 #include <osprim/base.hpp>
 #include <osprim/clock.hpp>
+#include <osprim/dynlib.hpp>
 #include <osprim/file.hpp>
 #include <osprim/path.hpp>
 #include <osprim/power.hpp>
@@ -86,8 +87,13 @@ namespace osprim
       void track_open(
           const char* type, uint64_t native, std::source_location loc,
           const track_meta* meta = nullptr) noexcept;
-      /// @brief Forgets a handle, reporting DIAGNOSTIC_HANDLE_MISUSE if it is not open.
+      /// @brief Forgets a handle (one reference of a shared one), reporting
+      /// DIAGNOSTIC_HANDLE_MISUSE if it is not open.
       void track_close(
+          const char* type, uint64_t native, std::source_location loc) noexcept;
+      /// @brief Records one more reference to a handle the OS shares between
+      /// opens (dynamic libraries): opening it again is not misuse.
+      void track_open_shared(
           const char* type, uint64_t native, std::source_location loc) noexcept;
       /// @brief Number of handles currently recorded.
       size_t tracked_count() noexcept;
@@ -107,6 +113,10 @@ namespace osprim
       {
       }
       inline void track_close(const char*, uint64_t, std::source_location) noexcept
+      {
+      }
+      inline void track_open_shared(
+          const char*, uint64_t, std::source_location) noexcept
       {
       }
       inline size_t tracked_count() noexcept
@@ -570,6 +580,23 @@ namespace osprim
       /// @param path Absolute, terminated
       status<current_directory_set_result> platform_current_directory_set(
           const char* path, size_t size) noexcept;
+
+      /*****************************/
+      /* DYNAMIC LIBRARIES         */
+      /*****************************/
+
+      inline constexpr const char* DYNLIB_TRACK_TYPE = "dynlib";
+
+      // Implemented by the platform source (dynlib_posix.cpp, dynlib_windows.cpp)
+
+      /// @param name Validated by dynlib.cpp, terminated: an absolute path
+      /// (PATH) or a bare name (SYSTEM)
+      status<dynlib_open_result> platform_dynlib_open(
+          const char* name, size_t size, const dynlib_open_desc& desc,
+          native_dynlib_t* out, size_t* message_size) noexcept;
+      void platform_dynlib_close(native_dynlib_t lib) noexcept;
+      /// @param name Terminated
+      void* platform_dynlib_symbol(native_dynlib_t lib, const char* name) noexcept;
 
       /*****************************/
       /* WAIT                      */
