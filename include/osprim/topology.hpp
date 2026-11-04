@@ -127,7 +127,7 @@ namespace osprim
     /// - Windows: the process's affinity over all processor groups, minus
     ///   CPU sets reserved for other processes; job object CPU rate cap.
     /// - Apple: the active CPU count; no quota.
-    status<cpu_budget_result> get_cpu_budget(cpu_budget* out) noexcept;
+    OSPRIM_API status<cpu_budget_result> get_cpu_budget(cpu_budget* out) noexcept;
 
     /*****************************/
     /* TOPOLOGY                  */
@@ -214,7 +214,7 @@ namespace osprim
     ///   frequencies (INFERRED; gaps under 15% are not a new class).
     /// - Apple: performance levels (sysctl hw.perflevelN). No CPU entries
     ///   (`*count` is 0): Apple exposes no CPU identities.
-    status<topology_result> topology_query(
+    OSPRIM_API status<topology_result> topology_query(
         topology_summary* out, cpu_desc* cpus, size_t capacity,
         size_t* count) noexcept;
 
@@ -241,7 +241,7 @@ namespace osprim
     /// - Windows: CPU sets (SetThreadSelectedCpuSets), any processor group.
     /// - Linux, Android, Apple: UNSUPPORTED.
     /// @param ids cpu_desc::id values; none (count 0) removes the preference
-    status<thread_affinity_result> set_current_thread_preferred_cpus(
+    OSPRIM_API status<thread_affinity_result> set_current_thread_preferred_cpus(
         const uint64_t* ids, size_t count) noexcept;
 
     /// @brief Hard: the calling thread runs only on these CPUs (and threads
@@ -261,7 +261,7 @@ namespace osprim
     /// thread had by default (Linux, Android: the CPUs of the thread that
     /// called initialize(); Windows: the process's affinity in its primary
     /// group)
-    status<thread_affinity_result> set_current_thread_allowed_cpus(
+    OSPRIM_API status<thread_affinity_result> set_current_thread_allowed_cpus(
         const uint64_t* ids, size_t count) noexcept;
   } // namespace v0_1
 } // namespace osprim

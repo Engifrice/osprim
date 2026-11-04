@@ -145,14 +145,14 @@ namespace osprim
     /// @brief Opens the directory `name` relative to `dir` (or the absolute
     /// path `name` with NO_DIRECTORY). "." opens `dir` again.
     /// @pre `name_size` > 0
-    status<dir_open_result> dir_open_at(
+    OSPRIM_API status<dir_open_result> dir_open_at(
         dir_handle dir, const char* name, size_t name_size, path_resolve resolve,
         dir_handle& out,
         std::source_location loc = std::source_location::current()) noexcept;
 
     /// @brief Closes the handle.
     /// @pre Open, and no other thread using it
-    void dir_close(
+    OSPRIM_API void dir_close(
         dir_handle d,
         std::source_location loc = std::source_location::current()) noexcept;
 
@@ -166,12 +166,12 @@ namespace osprim
 
     /// @brief Takes ownership of a directory handle opened elsewhere. On
     /// failure ownership stays with the caller.
-    status<dir_adopt_result> dir_adopt(
+    OSPRIM_API status<dir_adopt_result> dir_adopt(
         native_dir_t native, dir_handle& out,
         std::source_location loc = std::source_location::current()) noexcept;
 
     /// @brief Gives up ownership without closing.
-    native_dir_t dir_release(
+    OSPRIM_API native_dir_t dir_release(
         dir_handle d,
         std::source_location loc = std::source_location::current()) noexcept;
 
@@ -184,7 +184,7 @@ namespace osprim
     /// path, NORMAL)). With NO_SYMLINKS, a symlink anywhere in the name,
     /// the last component included, gives FILE_OPEN_SYMLINK.
     /// @pre `name_size` > 0; the truncating dispositions need write access
-    status<file_open_result> file_open_at(
+    OSPRIM_API status<file_open_result> file_open_at(
         dir_handle dir, const char* name, size_t name_size, path_resolve resolve,
         const file_open_desc& desc, file_handle& out,
         std::source_location loc = std::source_location::current()) noexcept;
@@ -229,7 +229,7 @@ namespace osprim
     /// @brief Type, size, last write time and identity of an entry. NORMAL
     /// follows a final symlink (stat); NO_SYMLINKS reports it as SYMLINK
     /// (lstat). Never opens file contents (no cloud download on Windows).
-    status<path_info_result> path_info_at(
+    OSPRIM_API status<path_info_result> path_info_at(
         dir_handle dir, const char* name, size_t name_size, path_resolve resolve,
         path_info& out) noexcept;
 
@@ -257,7 +257,7 @@ namespace osprim
     /// opens it: in one step on Windows; on POSIX right after, without
     /// following a symlink (another directory swapped in between cannot be
     /// detected there).
-    status<dir_create_result> dir_create_at(
+    OSPRIM_API status<dir_create_result> dir_create_at(
         dir_handle dir, const char* name, size_t name_size, path_resolve resolve,
         dir_handle* out          = nullptr,
         std::source_location loc = std::source_location::current()) noexcept;
@@ -291,7 +291,7 @@ namespace osprim
     /// while the file is open) and regardless of the read-only attribute;
     /// on filesystems without POSIX semantics (FAT, network shares) the
     /// name lingers until the last handle closes.
-    status<path_remove_result> path_remove_at(
+    OSPRIM_API status<path_remove_result> path_remove_at(
         dir_handle dir, const char* name, size_t name_size, path_resolve resolve,
         path_kind kind) noexcept;
 
@@ -339,7 +339,7 @@ namespace osprim
     /// `to_dir`), on one filesystem. Renaming a symlink renames the link.
     /// Replacing an existing directory differs: POSIX replaces an empty
     /// one, Windows refuses (ACCESS_DENIED).
-    status<path_rename_result> path_rename_at(
+    OSPRIM_API status<path_rename_result> path_rename_at(
         dir_handle from_dir, const char* from, size_t from_size, dir_handle to_dir,
         const char* to, size_t to_size, const path_rename_desc& desc) noexcept;
 
@@ -374,7 +374,7 @@ namespace osprim
     /// @brief The target of the symlink `name`, as stored (relative stays
     /// relative), in UTF-8, without terminator. Windows: \??\C:\x is
     /// reported as C:\x and \??\UNC\s\x as \\s\x.
-    status<path_read_link_result> path_read_link_at(
+    OSPRIM_API status<path_read_link_result> path_read_link_at(
         dir_handle dir, const char* name, size_t name_size, path_resolve resolve,
         char* buffer, size_t capacity, size_t& needed, link_info& info) noexcept;
 
@@ -447,13 +447,14 @@ namespace osprim
 
     /// @brief Starts (or restarts) a listing of `d` from the beginning.
     /// @pre `r.buffer` and `r.size` set as documented
-    status<dir_list_result> dir_list_begin(dir_handle d, dir_reader& r) noexcept;
+    OSPRIM_API status<dir_list_result> dir_list_begin(
+        dir_handle d, dir_reader& r) noexcept;
 
     /// @brief The next entry ("." and ".." are skipped). Unordered, and not
     /// a snapshot: entries created or removed during the listing may or may
     /// not appear.
     /// @pre dir_list_begin() was called with `d` and `r`
-    status<dir_list_result> dir_list_next(
+    OSPRIM_API status<dir_list_result> dir_list_next(
         dir_handle d, dir_reader& r, dir_entry& out) noexcept;
 
     /*****************************/
@@ -475,10 +476,10 @@ namespace osprim
     /// or \\server\share\x, or the \\?\ form when the plain one is not
     /// valid. A snapshot for logs, display and case checks: the name can
     /// change at any time, so do not reopen by it.
-    status<path_canonical_result> path_canonical(
+    OSPRIM_API status<path_canonical_result> path_canonical(
         file_handle h, char* buffer, size_t capacity, size_t& needed) noexcept;
     /// @copydoc path_canonical(file_handle, char*, size_t, size_t&)
-    status<path_canonical_result> path_canonical(
+    OSPRIM_API status<path_canonical_result> path_canonical(
         dir_handle d, char* buffer, size_t capacity, size_t& needed) noexcept;
 
     /*****************************/
@@ -497,7 +498,7 @@ namespace osprim
 
     /// @brief The process's current directory, in UTF-8, without terminator.
     /// The library never uses it itself.
-    status<current_directory_get_result> current_directory_get(
+    OSPRIM_API status<current_directory_get_result> current_directory_get(
         char* buffer, size_t capacity, size_t& needed) noexcept;
 
     /// @brief Result of current_directory_set().
@@ -515,7 +516,7 @@ namespace osprim
 
     /// @brief Changes the process's current directory. Process-wide: it
     /// changes relative paths for every thread and every library at once.
-    status<current_directory_set_result> current_directory_set(
+    OSPRIM_API status<current_directory_set_result> current_directory_set(
         const char* path, size_t path_size) noexcept;
   } // namespace v0_1
 } // namespace osprim

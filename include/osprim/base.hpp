@@ -14,6 +14,10 @@
  *   which can be overridden through OSPRIM_USER_CONFIG.
  * - Headers and library of different versions do not link together
  *   (every symbol lives in a versioned inline namespace).
+ * - The state (initialization, handle tracking, the diagnostic callback)
+ *   is per copy of the library: a process must contain exactly one. Link
+ *   osprim into one module only (the executable, or one shared library
+ *   exporting it), or build it shared (OSPRIM_SHARED). See OSPRIM_API.
  *********************************************************************/
 #ifndef OSPRIM_BASE_HPP
 #define OSPRIM_BASE_HPP
@@ -29,6 +33,27 @@
 #ifndef OSPRIM_TRACKING
   /// @brief 1 if handle tracking is compiled in (set by CMake, PUBLIC).
   #define OSPRIM_TRACKING 0
+#endif
+#ifndef OSPRIM_API
+  #if defined(OSPRIM_SHARED) && OSPRIM_SHARED
+    #if defined(_WIN32)
+      #ifdef OSPRIM_BUILDING
+        #define OSPRIM_API __declspec(dllexport)
+      #else
+        #define OSPRIM_API __declspec(dllimport)
+      #endif
+    #else
+      #define OSPRIM_API __attribute__((visibility("default")))
+    #endif
+  #else
+    /// @brief Marks every function of the library. Empty in a static build;
+    /// in a shared build (OSPRIM_SHARED, set by CMake, PUBLIC) it exports
+    /// them while building osprim (OSPRIM_BUILDING, always set by CMake
+    /// for osprim's own sources) and imports them elsewhere. Override in
+    /// OSPRIM_USER_CONFIG to export osprim from another shared library
+    /// that links it statically.
+    #define OSPRIM_API
+  #endif
 #endif
 
 #include <stddef.h>
@@ -145,11 +170,11 @@ namespace osprim
     /// capability detection, platform setup). Can take ~10-20 ms on x86-64,
     /// where the tick frequency is calibrated.
     /// @pre Not already initialized.
-    status<initialize_result> initialize(const init_desc& desc) noexcept;
+    OSPRIM_API status<initialize_result> initialize(const init_desc& desc) noexcept;
 
     /// @brief Tears down the library and reports leaked handles.
     /// @pre Initialized, and no other osprim call in progress.
-    void deinitialize() noexcept;
+    OSPRIM_API void deinitialize() noexcept;
 
     /*****************************/
     /* BUILD INFORMATION         */

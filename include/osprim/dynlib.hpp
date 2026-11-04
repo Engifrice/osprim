@@ -119,7 +119,7 @@ namespace osprim
     /// @brief Loads a library (or takes one more reference to it).
     /// @param message_size Receives the bytes written to `desc.message` (0 on success)
     /// @pre `name_size` > 0
-    status<dynlib_open_result> dynlib_open(
+    OSPRIM_API status<dynlib_open_result> dynlib_open(
         const char* name, size_t name_size, const dynlib_open_desc& desc,
         dynlib_handle& out, size_t* message_size = nullptr,
         std::source_location loc = std::source_location::current()) noexcept;
@@ -127,7 +127,7 @@ namespace osprim
     /// @brief Releases one reference (the library may stay mapped, or be
     /// unmapped at once: see the rules above).
     /// @pre Opened, and nothing still using pointers into it
-    void dynlib_close(
+    OSPRIM_API void dynlib_close(
         dynlib_handle lib,
         std::source_location loc = std::source_location::current()) noexcept;
 
@@ -145,12 +145,12 @@ namespace osprim
     /// @brief The address of an exported function or variable. Cast it to
     /// the function pointer type (valid on every supported platform).
     /// @param name Terminated (usually a literal)
-    status<dynlib_symbol_result> dynlib_symbol(
+    OSPRIM_API status<dynlib_symbol_result> dynlib_symbol(
         dynlib_handle lib, const char* name, void*& out) noexcept;
 
     /// @copydoc dynlib_symbol(dynlib_handle, const char*, void*&)
     /// @param name `name_size` bytes, no terminator needed
-    status<dynlib_symbol_result> dynlib_symbol(
+    OSPRIM_API status<dynlib_symbol_result> dynlib_symbol(
         dynlib_handle lib, const char* name, size_t name_size, void*& out) noexcept;
   } // namespace v0_1
 } // namespace osprim

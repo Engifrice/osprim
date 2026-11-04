@@ -92,7 +92,7 @@ namespace osprim
 
     /// @brief Starts a thread running `ctx.entry(ctx.user)`.
     /// @pre `ctx.entry` is set, `ctx` is not in use by another thread
-    status<thread_create_result> thread_create(
+    OSPRIM_API status<thread_create_result> thread_create(
         thread_context& ctx, const thread_desc& desc,
         std::source_location loc = std::source_location::current()) noexcept;
 
@@ -105,14 +105,14 @@ namespace osprim
 
     /// @brief Waits until the thread exits or `deadline`, then releases it.
     /// @pre Created, not joined or detached, and not the calling thread
-    thread_join_result thread_join(
+    OSPRIM_API thread_join_result thread_join(
         thread_context& ctx, awake_instant deadline,
         std::source_location loc = std::source_location::current()) noexcept;
 
     /// @brief Releases the thread without waiting: it cleans up on its own.
     /// `ctx` must stay valid until its state reads THREAD_STATE_EXITED.
     /// @pre Created, not joined or detached
-    void thread_detach(
+    OSPRIM_API void thread_detach(
         thread_context& ctx,
         std::source_location loc = std::source_location::current()) noexcept;
 
@@ -122,7 +122,7 @@ namespace osprim
 
     /// @brief OS id of the calling thread (gettid, GetCurrentThreadId,
     /// pthread_threadid_np): what profilers and the OS performance APIs use.
-    uint64_t current_thread_id() noexcept;
+    OSPRIM_API uint64_t current_thread_id() noexcept;
 
     /// @brief Longest thread name in bytes (UTF-8, without terminator): the
     /// Linux limit, enforced on every platform.
@@ -137,7 +137,7 @@ namespace osprim
 
     /// @brief Names the calling thread (shown by debuggers and profilers).
     /// @pre `name` is not null and at most THREAD_NAME_MAX bytes
-    status<set_thread_name_result> set_current_thread_name(
+    OSPRIM_API status<set_thread_name_result> set_current_thread_name(
         const char* name) noexcept;
 
     /// @brief Scheduling class of a thread. Mapping:
@@ -172,11 +172,11 @@ namespace osprim
     };
 
     /// @brief Sets the scheduling class of the calling thread.
-    status<set_thread_class_result> set_current_thread_class(
+    OSPRIM_API status<set_thread_class_result> set_current_thread_class(
         thread_class c) noexcept;
 
     /// @brief Gives up the rest of the time slice (sched_yield, SwitchToThread).
-    void yield_thread() noexcept;
+    OSPRIM_API void yield_thread() noexcept;
 
     /// @brief Spin-wait hint, for the body of a spin loop: PAUSE on x86-64
     /// (about 10 cycles before Skylake, about 140 since: bound spin loops by
@@ -202,7 +202,7 @@ namespace osprim
     /// clock_nanosleep, mach_wait_until, high-resolution waitable timer).
     /// A deadline already passed returns at once.
     /// @pre `deadline` is not awake_instant::forever()
-    void sleep_until(awake_instant deadline) noexcept;
+    OSPRIM_API void sleep_until(awake_instant deadline) noexcept;
   } // namespace v0_1
 } // namespace osprim
 

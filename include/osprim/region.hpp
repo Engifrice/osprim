@@ -71,7 +71,7 @@ namespace osprim
     /// @brief Alignment the OS maps at, in bytes (a power of two): the page
     /// size on POSIX (4 or 16 KiB), the allocation granularity on Windows
     /// (64 KiB). Offsets that are multiples of it waste no address space.
-    size_t region_granularity() noexcept;
+    OSPRIM_API size_t region_granularity() noexcept;
 
     /// @brief Result of region_map().
     enum class region_map_result : uint8_t
@@ -89,7 +89,7 @@ namespace osprim
     /// report READ_WRITE regions over unreserved space (holes) with
     /// DIAGNOSTIC_REGION_OVER_HOLE.
     /// @pre `file` open (and not unbuffered while being written)
-    status<region_map_result> region_map(
+    OSPRIM_API status<region_map_result> region_map(
         file_handle file, uint64_t offset, size_t size, region_access access,
         region& out,
         std::source_location loc = std::source_location::current()) noexcept;
@@ -97,7 +97,7 @@ namespace osprim
     /// @brief Unmaps the region. Unflushed writes still reach the file later.
     /// @pre `r` is exactly as region_map() returned it, and no other thread
     /// touches it
-    void region_unmap(
+    OSPRIM_API void region_unmap(
         region r,
         std::source_location loc = std::source_location::current()) noexcept;
 
@@ -114,7 +114,7 @@ namespace osprim
     /// OS, not stable storage: call file_flush() on a handle to the file
     /// afterwards for durability.
     /// @pre READ_WRITE region; `offset` + `size` <= `r.size`
-    status<region_flush_result> region_flush(
+    OSPRIM_API status<region_flush_result> region_flush(
         region r, size_t offset, size_t size) noexcept;
   } // namespace v0_1
 } // namespace osprim

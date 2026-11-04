@@ -56,17 +56,17 @@ namespace osprim
     /// @param expected Returns at once if the word does not hold this value
     /// @param deadline awake_instant::forever() to wait without deadline;
     /// a deadline already passed returns at once
-    wait_result wait(
+    OSPRIM_API wait_result wait(
         const std::atomic<wait_word_t>& word, wait_word_t expected,
         awake_instant deadline) noexcept;
 
     /// @brief Wakes at least one thread blocked in wait() on `word`, if any.
     /// Always a system call: callers that care track their waiters.
-    void wake_one(const std::atomic<wait_word_t>& word) noexcept;
+    OSPRIM_API void wake_one(const std::atomic<wait_word_t>& word) noexcept;
 
     /// @brief Wakes every thread blocked in wait() on `word`.
     /// Always a system call: callers that care track their waiters.
-    void wake_all(const std::atomic<wait_word_t>& word) noexcept;
+    OSPRIM_API void wake_all(const std::atomic<wait_word_t>& word) noexcept;
   } // namespace v0_1
 } // namespace osprim
 

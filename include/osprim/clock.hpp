@@ -103,11 +103,11 @@ namespace osprim
     /*****************************/
 
     /// @brief Current awake time. Never decreases, on any thread.
-    awake_instant awake_now() noexcept;
+    OSPRIM_API awake_instant awake_now() noexcept;
     /// @brief Current continuous time. Never decreases, on any thread.
-    continuous_instant continuous_now() noexcept;
+    OSPRIM_API continuous_instant continuous_now() noexcept;
     /// @brief Current wall time as reported by the OS (may jump).
-    wall_instant wall_now() noexcept;
+    OSPRIM_API wall_instant wall_now() noexcept;
 
     /// @brief The deadline `d` nanoseconds from now. FOREVER_NS: no deadline.
     /// Zero or negative: a deadline that has already passed.
@@ -132,7 +132,7 @@ namespace osprim
     /// @brief Granularity of the readings of a clock in nanoseconds
     /// (the smallest non-zero difference two readings can show).
     /// This is not the precision of timers or waits.
-    int64_t clock_resolution_ns(clock_id c) noexcept;
+    OSPRIM_API int64_t clock_resolution_ns(clock_id c) noexcept;
 
     /*****************************/
     /* TICKS                     */
@@ -167,14 +167,14 @@ namespace osprim
     /// No fence: the read is not ordered with surrounding memory operations
     /// (the CPU may execute it slightly earlier or later), so it is meant for
     /// measuring durations, not for ordering events across threads.
-    uint64_t ticks_now() noexcept;
+    OSPRIM_API uint64_t ticks_now() noexcept;
     /// @brief Describes the tick counter.
-    ticks_info get_ticks_info() noexcept;
+    OSPRIM_API ticks_info get_ticks_info() noexcept;
     /// @brief Converts ticks (usually a difference) to nanoseconds, saturating at INT64_MAX.
-    int64_t ticks_to_ns(uint64_t ticks) noexcept;
+    OSPRIM_API int64_t ticks_to_ns(uint64_t ticks) noexcept;
     /// @brief Two samples far apart give the exact tick frequency over that
     /// interval and map ticks onto the awake clock.
-    ticks_sample sample_ticks() noexcept;
+    OSPRIM_API ticks_sample sample_ticks() noexcept;
   } // namespace v0_1
 } // namespace osprim
 

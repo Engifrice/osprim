@@ -227,7 +227,7 @@ namespace osprim
     /// @brief Opens or creates the regular file at `path`.
     /// @param path UTF-8, absolute, `path_size` bytes (no terminator needed)
     /// @pre `path_size` > 0; the truncating dispositions need write access
-    status<file_open_result> file_open(
+    OSPRIM_API status<file_open_result> file_open(
         const char* path, size_t path_size, const file_open_desc& desc,
         file_handle& out,
         std::source_location loc = std::source_location::current()) noexcept;
@@ -236,7 +236,7 @@ namespace osprim
     /// nothing reliable (the handle is released anyway); call file_flush()
     /// first when the data matters.
     /// @pre Open, and no other thread using it
-    void file_close(
+    OSPRIM_API void file_close(
         file_handle h,
         std::source_location loc = std::source_location::current()) noexcept;
 
@@ -261,14 +261,14 @@ namespace osprim
     /// (O_DIRECT, FILE_FLAG_NO_BUFFERING) for the alignment checks; Apple
     /// cannot report F_NOCACHE, so adopted handles count as buffered there.
     /// @pre `native` is open and not owned by another file_handle
-    status<file_adopt_result> file_adopt(
+    OSPRIM_API status<file_adopt_result> file_adopt(
         native_file_t native, file_handle& out,
         std::source_location loc = std::source_location::current()) noexcept;
 
     /// @brief Gives up ownership without closing: the caller (or the API it
     /// hands the native handle to) closes it.
     /// @pre Open, and no other thread using it
-    native_file_t file_release(
+    OSPRIM_API native_file_t file_release(
         file_handle h,
         std::source_location loc = std::source_location::current()) noexcept;
 
@@ -289,7 +289,7 @@ namespace osprim
     /// end of the file gives OK with `transferred` 0.
     /// @pre Open with read access; `size` <= FILE_IO_MAX; `offset` + `size`
     /// <= INT64_MAX; unbuffered: aligned (checked in tracked builds)
-    status<file_read_result> file_read_at(
+    OSPRIM_API status<file_read_result> file_read_at(
         file_handle h, uint64_t offset, void* buffer, size_t size,
         size_t& transferred) noexcept;
 
@@ -310,7 +310,7 @@ namespace osprim
     /// first, synchronously, at a cost proportional to its size.
     /// @pre Open with write access; `size` <= FILE_IO_MAX; `offset` + `size`
     /// <= INT64_MAX; unbuffered: aligned (checked in tracked builds)
-    status<file_write_result> file_write_at(
+    OSPRIM_API status<file_write_result> file_write_at(
         file_handle h, uint64_t offset, const void* buffer, size_t size,
         size_t& transferred) noexcept;
 
@@ -338,7 +338,7 @@ namespace osprim
     /// as lost: the OS may have dropped it, and flushing again can succeed
     /// without bringing it back.
     /// @pre Open with write access
-    status<file_flush_result> file_flush(file_handle h) noexcept;
+    OSPRIM_API status<file_flush_result> file_flush(file_handle h) noexcept;
 
     /*****************************/
     /* SIZE AND IDENTITY         */
@@ -374,7 +374,8 @@ namespace osprim
     /// @brief Size, last write time and identity (fstat; Windows: two
     /// GetFileInformationByHandleEx calls).
     /// @pre Open
-    status<file_info_result> file_info_of(file_handle h, file_info& out) noexcept;
+    OSPRIM_API status<file_info_result> file_info_of(
+        file_handle h, file_info& out) noexcept;
 
     /// @brief How file_set_size() treats storage when growing. Shrinking
     /// ignores it. The new bytes read as zero in both modes.
@@ -414,7 +415,7 @@ namespace osprim
     /// lost pages crashes the process (SIGBUS). Windows refuses any shrink
     /// while the file has a live region (MAPPED).
     /// @pre Open with write access; `size` <= INT64_MAX
-    status<file_set_size_result> file_set_size(
+    OSPRIM_API status<file_set_size_result> file_set_size(
         file_handle h, uint64_t size, file_size_mode mode,
         std::source_location loc = std::source_location::current()) noexcept;
 
@@ -446,7 +447,7 @@ namespace osprim
     /// full aligned block (the read is short); write a full block, then
     /// trim with file_set_size().
     /// @pre Open
-    status<file_alignment_result> file_unbuffered_alignment(
+    OSPRIM_API status<file_alignment_result> file_unbuffered_alignment(
         file_handle h, file_alignment& out) noexcept;
   } // namespace v0_1
 } // namespace osprim

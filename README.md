@@ -322,6 +322,7 @@ cmake --build build
 | --------------------------- | -------------- | ----------------------------------------------------------------------------------------------- |
 | `OSPRIM_BUILD_TESTS`        | top-level only | Build the tests (fetches doctest)                                                               |
 | `OSPRIM_INSTALL`            | top-level only | Generate the install target and the `osprim` CMake package                                      |
+| `OSPRIM_SHARED`             | `OFF`          | Build a shared library (static otherwise); see [One copy per process](#one-copy-per-process)    |
 | `OSPRIM_TRACKING`           | `AUTO`         | Compile handle tracking in: `AUTO` (Debug only), `ON`, `OFF`                                    |
 | `OSPRIM_USER_CONFIG`        | empty          | Path of a header included first by every osprim header, for example to override `OSPRIM_ASSERT` |
 | `OSPRIM_WARNINGS_AS_ERRORS` | `OFF`          | `-Werror` / `/WX` (on in CI)                                                                    |
@@ -332,6 +333,44 @@ As a subproject:
 add_subdirectory(osprim)
 target_link_libraries(engine PRIVATE osprim::osprim)
 ```
+
+### One copy per process
+
+osprim's state (initialization, handle tracking, the diagnostic callback and allocator) belongs to one copy of the library, and a process must contain exactly one: a static library linked into two modules (an executable and a shared library, or two shared libraries) is two copies, each needing its own `initialize()`, and a handle opened through one copy and closed through the other is reported as leaked and misused. Three ways to have one copy:
+
+| Layout                                                 | How                                                                                                                        |
+| ------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------- |
+| Everything static                                      | Link osprim into the executable only                                                                                       |
+| osprim as its own shared library                       | `-DOSPRIM_SHARED=ON`: exports the `OSPRIM_API` functions (everything the headers declare), nothing else                    |
+| osprim inside another shared library, exported from it | Link osprim statically into that library only, as a whole archive, and define `OSPRIM_API` in `OSPRIM_USER_CONFIG` (below) |
+
+```cmake
+set(OSPRIM_USER_CONFIG "${CMAKE_CURRENT_SOURCE_DIR}/osprim_config.hpp")
+add_subdirectory(osprim)
+target_compile_definitions(example PRIVATE FRICE_OS_BUILDING=1)
+target_link_libraries(example
+  # Whole archive: the linker would otherwise drop the osprim objects
+  # 'example' itself does not call, and their exports with them
+  PRIVATE "$<LINK_LIBRARY:WHOLE_ARCHIVE,osprim::osprim>"
+  # Users of frice_os get osprim's headers and definitions, never a copy of
+  # its code (CMake 3.27)
+  PUBLIC "$<COMPILE_ONLY:osprim::osprim>")
+```
+
+```cpp
+// osprim_config.hpp. OSPRIM_BUILDING is set by osprim's CMake for its own sources.
+#if defined(_WIN32)
+  #if defined(OSPRIM_BUILDING) || defined(FRICE_OS_BUILDING)
+    #define OSPRIM_API __declspec(dllexport)
+  #else
+    #define OSPRIM_API __declspec(dllimport)
+  #endif
+#else
+  #define OSPRIM_API __attribute__((visibility("default")))
+#endif
+```
+
+Other modules then link `example` only, never osprim. In a shared build, the test suite is `tests/test_shared.cpp` (handles crossing modules, one clock state): the main suite drives internal functions that the shared library does not export.
 
 ## License
 
