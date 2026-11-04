@@ -271,12 +271,12 @@ jobs:
       - name: Test in Docker with --cpuset-cpus=0 (1 CPU)
         run: >
           docker run --rm --cpuset-cpus=0 -e OSPRIM_TEST_EXPECT_CPUS=1
-          -v "$PWD/build/tests:/t" ubuntu:24.04 /t/osprim_tests
+          -e OSPRIM_TEST_PLUGIN=/t/libosprim_test_plugin.so -v "$PWD/build/tests:/t" ubuntu:24.04 /t/osprim_tests
 
       - name: Test in Docker with --cpus=1.5 (quota)
         run: >
           docker run --rm --cpus=1.5 -e OSPRIM_TEST_EXPECT_QUOTA=1500
-          -v "$PWD/build/tests:/t" ubuntu:24.04 /t/osprim_tests
+          -e OSPRIM_TEST_PLUGIN=/t/libosprim_test_plugin.so -v "$PWD/build/tests:/t" ubuntu:24.04 /t/osprim_tests
 
   # The package installs, and a consumer finds it with find_package()
   install:
@@ -365,8 +365,9 @@ jobs:
           disable-animations: true
           script: |
             adb push build/tests/osprim_tests /data/local/tmp/osprim_tests
+            adb push build/tests/libosprim_test_plugin.so /data/local/tmp/libosprim_test_plugin.so
             adb shell chmod 755 /data/local/tmp/osprim_tests
-            adb shell /data/local/tmp/osprim_tests
+            adb shell OSPRIM_TEST_PLUGIN=/data/local/tmp/libosprim_test_plugin.so /data/local/tmp/osprim_tests
 
   # Built only: running needs a device or a signed app bundle.
   ios:
@@ -391,10 +392,10 @@ jobs:
 
       - name: Build
         run: cmake --build build --parallel
-    
-  # The iOS simulator runs the tests on the Mac's kernel, with the iOS SDK,
-  # frameworks and availability rules: device-only behavior (sandbox, data
-  # protection, memory limits) stays untested.
+
+  # The same tests in the iOS simulator: the iOS SDK and dyld, on the host's
+  # CPU (no device rules: code signing and the bundle-only loading of
+  # dynamic libraries are not enforced there).
   ios-simulator:
     name: ios-simulator-arm64 (${{ matrix.build_type }})
     runs-on: macos-15
@@ -422,16 +423,17 @@ jobs:
       - name: Boot a simulator
         run: |
           UDID=$(xcrun simctl list devices available -j | python3 -c '
-          import json, sys
+          import json, re, sys
           devices = json.load(sys.stdin)["devices"]
-          ios = [(rt, d) for rt, ds in devices.items() if "iOS" in rt for d in ds if d["name"].startswith("iPhone")]
-          ios.sort(key=lambda x: x[0])
-          print(ios[-1][1]["udid"])')
-          echo "Simulator: $UDID"
+          version = lambda runtime: [int(x) for x in re.findall(r"\d+", runtime.split("iOS")[-1])]
+          found = sorted((version(runtime), d["udid"]) for runtime, ds in devices.items()
+                         if ".iOS-" in runtime for d in ds if d["name"].startswith("iPhone"))
+          print(found[-1][1])')
           echo "UDID=$UDID" >> "$GITHUB_ENV"
           xcrun simctl bootstatus "$UDID" -b
 
       - name: Test in the simulator
         env:
+          # simctl passes SIMCTL_CHILD_X to the process as X
           SIMCTL_CHILD_TMPDIR: ${{ runner.temp }}
         run: xcrun simctl spawn "$UDID" "$PWD/build/tests/osprim_tests"
