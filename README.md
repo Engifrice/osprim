@@ -95,6 +95,8 @@ osprim::wake_one(ready);
 
 A thread is described by a caller-owned `thread_context`: the library never allocates for it. The context holds the entry function, its argument, the thread's state (a wait word, so it can be waited on), its OS id and its native handle. It must stay valid until `thread_join()` returns `THREAD_JOIN_OK`, or, for a detached thread, until its state reads `THREAD_STATE_EXITED`.
 
+An optional `on_exit` hook runs on the thread as its very last use of the context, after the state reads `THREAD_STATE_EXITED`: it may free a context allocated for the thread, which is what a detached thread with a heap context needs. The owner still uses the context after the thread may have exited (`thread_create()` writes the native handle once the thread runs, `thread_join()` and `thread_detach()` read it), so a hook that frees coordinates with the owner: a count of two, released by the hook and by the owner after its join or detach, the last release freeing. `thread_join()` returns only after the hook has returned; hooks must be short, must not throw, and run before the thread's `thread_local` destructors.
+
 ```cpp
 struct worker
 {
