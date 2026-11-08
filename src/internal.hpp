@@ -232,8 +232,10 @@ namespace osprim
       /// @brief Starts a native thread running run_thread(&ctx), sets ctx.native.
       status<thread_create_result> platform_thread_create(
           thread_context& ctx, size_t stack_size) noexcept;
-      /// @brief Releases a thread whose state is EXITED (waits for the last
-      /// few instructions of the trampoline).
+      /// @brief Releases a thread whose state is EXITED. Must wait for the
+      /// thread to terminate (not only for the state): thread_join()
+      /// promises that the on_exit hook, which runs after EXITED, has
+      /// returned.
       void platform_thread_join(uint64_t native) noexcept;
       /// @brief Releases a thread that may still run.
       void platform_thread_detach(uint64_t native) noexcept;

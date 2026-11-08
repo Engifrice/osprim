@@ -7,6 +7,7 @@
  *   never allocates for a thread. The context must stay valid until
  *   thread_join() returns OK, or, for a detached thread, until its state
  *   reads THREAD_STATE_EXITED (the library never touches it afterwards).
+ *   With an on_exit hook: until the hook runs (see thread_context::on_exit).
  * - Settings (name, class) apply to the calling thread only: some
  *   platforms cannot change them on another thread. A thread sets its own,
  *   usually first thing in its entry function.
@@ -44,17 +45,44 @@ namespace osprim
     {
       THREAD_STATE_STARTING, ///< Created, entry not called yet (id not valid yet)
       THREAD_STATE_RUNNING,  ///< Entry called (id valid)
-      THREAD_STATE_EXITED, ///< Entry returned: the library no longer uses the context
+      /// @brief Entry returned: the library no longer uses the context
+      /// (except to call on_exit)
+      THREAD_STATE_EXITED,
     };
 
-    /// @brief Caller-owned storage for one thread. The caller sets `entry`
-    /// and `user`; the library sets everything else.
+    /// @brief Caller-owned storage for one thread. The caller sets `entry`,
+    /// `user` and `on_exit`; the library sets everything else.
     struct thread_context
     {
       /// @brief Runs on the new thread. Must not throw.
       void (*entry)(void* user) noexcept = nullptr;
       /// @brief Passed to `entry`.
       void* user = nullptr;
+      /// @brief Optional. Runs on the thread as its very last use of the
+      /// context: after `entry` returns, `state` is set to
+      /// THREAD_STATE_EXITED and its waiters are woken. The library never
+      /// touches the context afterwards, so the hook may free it, under
+      /// these rules:
+      /// - Ownership: the owner also uses the context after the thread may
+      ///   have exited (thread_create() writes `native` once the thread is
+      ///   started; thread_join() and thread_detach() read it). The hook may
+      ///   free the context only once the owner is done with it, so a hook
+      ///   that frees coordinates with the owner, typically with a count of
+      ///   two released by both, the last release freeing:
+      ///   @code
+      ///   // on the thread                // on the owner
+      ///   on_exit: release(ctx);           thread_detach(ctx); release(ctx);
+      ///   @endcode
+      /// - Join: thread_join() returns THREAD_JOIN_OK only after the hook
+      ///   has returned (so a timed join can exceed its deadline by the
+      ///   hook's duration: keep hooks short).
+      /// - The hook must not throw, nor join or detach its own thread. It
+      ///   runs before the thread's thread_local destructors (POSIX key
+      ///   destructors, Windows TLS callbacks and DLL_THREAD_DETACH): it
+      ///   must not free what those still use.
+      /// - With a hook, the context must stay valid until the hook runs
+      ///   (instead of until `state` reads THREAD_STATE_EXITED).
+      void (*on_exit)(thread_context* ctx) noexcept = nullptr;
       /// @brief A thread_state. Woken (wake_all) on every change, so it can
       /// be waited on.
       std::atomic<wait_word_t> state{0};
@@ -99,7 +127,9 @@ namespace osprim
     /// @brief Result of thread_join().
     enum class thread_join_result : uint8_t
     {
-      THREAD_JOIN_OK,        ///< Exited and released: `ctx` may be reused or freed
+      /// @brief Exited (on_exit included) and released: `ctx` may be reused
+      /// or freed
+      THREAD_JOIN_OK,
       THREAD_JOIN_TIMED_OUT, ///< Still running at the deadline: `ctx` still in use
     };
 
@@ -110,7 +140,8 @@ namespace osprim
         std::source_location loc = std::source_location::current()) noexcept;
 
     /// @brief Releases the thread without waiting: it cleans up on its own.
-    /// `ctx` must stay valid until its state reads THREAD_STATE_EXITED.
+    /// `ctx` must stay valid until its state reads THREAD_STATE_EXITED, or
+    /// with an on_exit hook, until the hook runs.
     /// @pre Created, not joined or detached
     OSPRIM_API void thread_detach(
         thread_context& ctx,

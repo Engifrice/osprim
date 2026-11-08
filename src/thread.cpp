@@ -30,13 +30,18 @@ namespace osprim
 
         ctx->entry(ctx->user);
 
-        // After this store, the owner may free the context (detached thread):
-        // the wake only uses the address, as an identifier, and never
-        // touches the memory.
+        // Read the hook first: without one, the owner may free the context
+        // (detached thread) as soon as it reads EXITED
+        void (*const on_exit)(thread_context*) noexcept = ctx->on_exit;
+        // After this store, the context may be gone (no hook): the wake only
+        // uses the address, as an identifier, and never touches the memory.
         std::atomic<wait_word_t>& state = ctx->state;
         state.store(
             word(thread_state::THREAD_STATE_EXITED), std::memory_order_release);
         wake_all(state);
+        // The very last use of the context: the hook may free it
+        if (on_exit != nullptr)
+          on_exit(ctx);
       }
     } // namespace detail
 
