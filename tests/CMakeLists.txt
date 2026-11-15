@@ -66,6 +66,7 @@ add_executable(osprim_tests
   support.hpp
   files.hpp
   user_config.hpp
+  test_async_io.cpp
   test_base.cpp
   test_clock.cpp
   test_wait.cpp
