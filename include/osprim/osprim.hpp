@@ -16,5 +16,6 @@
 #include <osprim/thread.hpp>
 #include <osprim/topology.hpp>
 #include <osprim/wait.hpp>
+#include <osprim/async_io.hpp>
 
 #endif // !OSPRIM_OSPRIM_HPP
