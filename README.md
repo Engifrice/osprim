@@ -16,6 +16,7 @@ osprim provides **mechanism, not policy**: the lowest-level building blocks, wit
 | Topology          | `osprim/topology.hpp` | CPU budget, core classes and caches, thread affinity, cache line constants                                                                                     |
 | File              | `osprim/file.hpp`     | Open, positioned read and write, flush, size and identity, adoption of native handles, unbuffered I/O                                                          |
 | Region            | `osprim/region.hpp`   | Mapped regions of files                                                                                                                                        |
+| Async I/O         | `osprim/async_io.hpp` | Asynchronous reads and writes of regular files where the kernel performs them (I/O completion ports, io_uring): queues, batched submission, deadlines, wakes   |
 | Path              | `osprim/path.hpp`     | Directory handles and operations relative to them: entry information, create, remove, rename, symlink targets, listing, canonical paths, the current directory |
 | Dynamic libraries | `osprim/dynlib.hpp`   | Load by path or from the system, symbols, release                                                                                                              |
 | Platform          | `osprim/platform.hpp` | `OSPRIM_OS_*` and `OSPRIM_ARCH_*` macros                                                                                                                       |
@@ -237,6 +238,45 @@ A `file_handle` is the native handle: no state outside handle tracking, free to 
 
 
 **Regions** map a range of a file as memory. Any offset works, the range must lie inside the file, and the file handle may be closed right after mapping. Every failure becomes a crash, because a memory access has no error return: a device error, a file truncated by another program, or a full disk while writing into unreserved space (grow with `RESERVE` first). Map large read-only data on local storage; read everything else, and write saves with `file_write_at()`. Durable writes through a region take two steps: `region_flush()`, then `file_flush()` on a handle to the file.
+
+## Async I/O
+
+| Your goal                                        | Use                       |
+| ------------------------------------------------ | ------------------------- |
+| Know at compile time whether the platform has it | `ASYNC_IO_AVAILABLE`      |
+| Create a queue (and learn if the OS allows it)   | `async_io_queue_create()` |
+| Let a file be used with a queue                  | `async_io_queue_attach()` |
+| Start reads and writes, several per system call  | `async_io_queue_submit()` |
+| Collect finished operations, with a deadline     | `async_io_queue_wait()`   |
+| Stop an operation early                          | `async_io_queue_cancel()` |
+| Wake the queue's owner from another thread       | `async_io_queue_wake()`   |
+
+**Only where the kernel does it.** osprim never emulates asynchronous I/O with threads: where it is missing, the engine runs `file_read_at()` / `file_write_at()` on threads it owns, with its own policy. Every function is declared on every platform, so `if constexpr (osprim::ASYNC_IO_AVAILABLE)` compiles everywhere.
+
+|                         | Windows             | Linux                                                                                          | Android                                       | Apple                                      |
+| ----------------------- | ------------------- | ---------------------------------------------------------------------------------------------- | --------------------------------------------- | ------------------------------------------ |
+| `ASYNC_IO_AVAILABLE`    | `true`              | `true`                                                                                         | `false`                                       | `false`                                    |
+| Backend                 | I/O completion port | io_uring, 5.11+ (raw system calls)                                                             | none: the app seccomp filter forbids io_uring | none: no kernel async file I/O worth using |
+| Creation can still fail | no                  | `DISABLED` (sysctl, seccomp), `TOO_OLD` (feature probe), `OUT_OF_MEMORY` (memlock before 5.12) | always `UNSUPPORTED`, no system call          | always `UNSUPPORTED`, no system call       |
+
+- **Caller-owned:** the queue and every operation (`async_io_op`: file, offset, buffer, size, kind, then `result` and `transferred`) belong to the caller; the library never allocates. An operation and its buffer stay valid and unmoved from submission until a wait returns it.
+- **Every operation completes exactly once, through the queue:** success, failure, cancellation. Cancellation is best effort: the operation ends `CANCELED` or with its real result.
+- **One owner thread** submits, waits, cancels and attaches; `async_io_queue_wake()` is the only call for other threads. Wakes coalesce and are never lost: a wake sent while the owner is not waiting makes its next wait return at once.
+- **Capacity** bounds the operations in flight, on every platform. Submission stops there (`submitted` < `count`).
+- **Attaching is permanent:** a file is attached to one queue for the rest of its life. Blocking calls keep working on it.
+- **Waits** take an awake deadline; a timeout is never reported early. A wake or an interruption returns `OK` early, possibly with fewer than `min_count` operations: callers re-check their own state, as with `wait()`.
+- **Unbuffered files** work as with `file_read_at()` (same alignment), and are the most predictable: no OS cache in between.
+
+**Submission can block.** Windows performs some operations inside the submitting call (they still complete through the queue): writes that extend a file and NTFS-compressed or encrypted files. Writing new files (saves, caches) is therefore not asynchronous on Windows: run those writes on an engine thread. Linux hands work that would block to kernel workers.
+
+|                       | Windows                                                  | Linux                                                                                           |
+| --------------------- | -------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| Submission            | one `ReadFile` / `WriteFile` per operation               | one `io_uring_enter` per batch                                                                  |
+| Failure at submission | the library posts the completion itself                  | the kernel posts it                                                                             |
+| Wait                  | `GetQueuedCompletionStatusEx` (milliseconds, rounded up) | `io_uring_enter` with a relative timeout (`EXT_ARG`)                                            |
+| Wake                  | a posted packet                                          | an eventfd watched by a poll in the ring                                                        |
+| Cancel                | `CancelIoEx`                                             | `IORING_OP_ASYNC_CANCEL`, sent with the next submission or wait                                 |
+| Optional features     | -                                                        | `SINGLE_ISSUER`, `DEFER_TASKRUN` (6.0, 6.1), `SUBMIT_ALL` (5.18), used when the kernel has them |
 
 ## Paths and directories
 
