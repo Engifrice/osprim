@@ -265,6 +265,193 @@ TEST_CASE("thread: a context can be reused after join")
   CHECK(ran.load() == 10);
 }
 
+/*****************************/
+/* EXIT HOOK                 */
+/*****************************/
+
+namespace
+{
+  /// @brief A context with a hook recording what it saw.
+  struct hooked
+  {
+    thread_context ctx;
+    std::atomic<int> entry_ran{0};
+    std::atomic<int> hook_ran{0};
+    std::atomic<int> hook_saw_entry{0};
+    std::atomic<wait_word_t> hook_saw_state{0};
+    int64_t hook_sleep_ns = 0;
+
+    hooked()
+    {
+      ctx.entry = [](void* user) noexcept
+      { static_cast<hooked*>(user)->entry_ran.fetch_add(1); };
+      ctx.on_exit = [](thread_context* c) noexcept
+      {
+        auto* h = static_cast<hooked*>(c->user);
+        h->hook_saw_state.store(c->state.load(std::memory_order_acquire));
+        h->hook_saw_entry.store(h->entry_ran.load());
+        if (h->hook_sleep_ns != 0)
+          sleep_until(deadline_after(h->hook_sleep_ns));
+        h->hook_ran.fetch_add(1, std::memory_order_release);
+      };
+      ctx.user = this;
+    }
+  };
+
+  /// @brief A heap context shared by the owner and the thread: a count of
+  /// two, the last release frees (the pattern thread_context::on_exit
+  /// documents).
+  struct shared_block
+  {
+    thread_context ctx;
+    std::atomic<wait_word_t> refs{2};
+  };
+
+  std::atomic<int> g_freed_by_owner{0};
+  std::atomic<int> g_freed_by_thread{0};
+  std::atomic<wait_word_t> g_hooks{0};
+
+  /// @return True if this release freed the block
+  bool release(shared_block* b) noexcept
+  {
+    if (b->refs.fetch_sub(1, std::memory_order_acq_rel) != 1)
+      return false;
+    delete b;
+    return true;
+  }
+
+  shared_block* new_shared_block()
+  {
+    auto* b        = new shared_block;
+    b->ctx.entry   = [](void*) noexcept {};
+    b->ctx.on_exit = [](thread_context* c) noexcept
+    {
+      g_hooks.fetch_add(1, std::memory_order_release);
+      wake_all(g_hooks);
+      // `ctx` is the first member: the block's address
+      if (release(reinterpret_cast<shared_block*>(c)))
+        g_freed_by_thread.fetch_add(1);
+    };
+    return b;
+  }
+
+  /// @brief Blocks until g_hooks reaches `n` (or 10 s).
+  bool wait_for_hooks(wait_word_t n)
+  {
+    const awake_instant deadline = deadline_after(10 * S);
+    for (;;)
+    {
+      const wait_word_t v = g_hooks.load(std::memory_order_acquire);
+      if (v >= n)
+        return true;
+      if (wait(g_hooks, v, deadline) == wait_result::WAIT_TIMED_OUT)
+        return g_hooks.load(std::memory_order_acquire) >= n;
+    }
+  }
+} // namespace
+
+static_assert(std::is_standard_layout_v<shared_block>);
+
+TEST_CASE("thread: on_exit runs after the entry, once the state is EXITED")
+{
+  session s;
+  hooked h;
+  REQUIRE(thread_create(h.ctx, {}).ok());
+  CHECK(
+      thread_join(h.ctx, deadline_after(10 * S))
+      == thread_join_result::THREAD_JOIN_OK);
+  CHECK(h.entry_ran.load() == 1);
+  CHECK(h.hook_ran.load() == 1);
+  CHECK(h.hook_saw_entry.load() == 1);
+  CHECK(
+      h.hook_saw_state.load()
+      == static_cast<wait_word_t>(thread_state::THREAD_STATE_EXITED));
+}
+
+TEST_CASE("thread: thread_join returns after on_exit has returned")
+{
+  session s;
+  hooked h;
+  h.hook_sleep_ns = 30 * MS; // the hook outlasts the EXITED store
+  for (int i = 0; i < 3; ++i)
+  {
+    REQUIRE(thread_create(h.ctx, {}).ok());
+    CHECK(
+        thread_join(h.ctx, deadline_after(10 * S))
+        == thread_join_result::THREAD_JOIN_OK);
+    // acquire: pairs with the hook's release increment
+    CHECK(h.hook_ran.load(std::memory_order_acquire) == i + 1);
+  }
+}
+
+TEST_CASE("thread: on_exit and a reused context")
+{
+  session s;
+  hooked h;
+  for (int i = 0; i < 10; ++i)
+  {
+    REQUIRE(thread_create(h.ctx, {}).ok());
+    CHECK(
+        thread_join(h.ctx, deadline_after(10 * S))
+        == thread_join_result::THREAD_JOIN_OK);
+  }
+  CHECK(h.entry_ran.load() == 10);
+  CHECK(h.hook_ran.load() == 10);
+}
+
+TEST_CASE("thread: on_exit frees a heap context, shared with the owner")
+{
+  session s;
+  constexpr int N = 2000;
+  g_freed_by_owner.store(0);
+  g_freed_by_thread.store(0);
+  g_hooks.store(0);
+
+  SUBCASE("joined: the owner frees after the join")
+  {
+    for (int i = 0; i < N / 4; ++i)
+    {
+      shared_block* b = new_shared_block();
+      REQUIRE(thread_create(b->ctx, {}).ok());
+      REQUIRE(
+          thread_join(b->ctx, deadline_after(10 * S))
+          == thread_join_result::THREAD_JOIN_OK);
+      // The hook has released its reference: this release is the last
+      CHECK(release(b));
+      g_freed_by_owner.fetch_add(1);
+    }
+    CHECK(g_freed_by_owner.load() == N / 4);
+    CHECK(g_freed_by_thread.load() == 0);
+  }
+
+  SUBCASE("detached: whoever releases last frees")
+  {
+    for (int i = 0; i < N; ++i)
+    {
+      shared_block* b = new_shared_block();
+      REQUIRE(thread_create(b->ctx, {}).ok());
+      // Half detach at once (the thread usually frees), half once the
+      // thread has reached its hook (the owner usually frees). Either way
+      // the count decides, and ASan/TSan check the memory.
+      if (i % 2 == 1)
+        CHECK(wait_for_hooks(static_cast<wait_word_t>(i + 1)));
+      thread_detach(b->ctx);
+      if (release(b))
+        g_freed_by_owner.fetch_add(1);
+    }
+    REQUIRE(wait_for_hooks(N));
+    // The last hooks may still be between their count and their release
+    const awake_instant deadline = deadline_after(10 * S);
+    while (g_freed_by_owner.load() + g_freed_by_thread.load() < N
+           && awake_now().ns < deadline.ns)
+      sleep_until(deadline_after(MS));
+    CHECK(g_freed_by_owner.load() + g_freed_by_thread.load() == N);
+    note(
+        "detached: %d freed by the owner, %d by the thread", g_freed_by_owner.load(),
+        g_freed_by_thread.load());
+  }
+}
+
 TEST_CASE("thread: many threads at once have distinct ids")
 {
   session s;
