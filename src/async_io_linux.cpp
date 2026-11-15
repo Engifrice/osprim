@@ -31,7 +31,7 @@
  *   then clears the pending flag, then arms the poll again.
  * - Waits pass the remaining time as a relative timeout (EXT_ARG, on
  *   CLOCK_MONOTONIC, the awake clock); a timeout is reported only once the
- *   awake clock has reached the deadline.
+ *   awake clock has reached the deadline, and an early one waits again.
  *********************************************************************/
 #include "internal.hpp"
 
@@ -609,16 +609,7 @@ namespace osprim
           if (r >= 0)
             continue; // collected, or internal completions only: check again
           if (r == -ETIME)
-          {
-            if (n < min_count && !woken && awake_now() >= deadline)
-            {
-              *count = n;
-              return {
-                  R::ASYNC_IO_WAIT_TIMED_OUT, native_error_kind::NATIVE_ERROR_NONE,
-                  0};
-            }
-            break; // early timer, or completions arrived with it
-          }
+            continue; // satisfied meanwhile, TIMED_OUT, or an early timer: wait again
           if (transient(r))
             break; // an interruption: an early return
           *count = n;

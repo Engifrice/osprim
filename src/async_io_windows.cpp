@@ -21,7 +21,9 @@
  *   the flag still set and is covered by the wait that is returning.
  * - GetQueuedCompletionStatusEx takes milliseconds: the remaining time is
  *   rounded up, and a timeout is reported only once the awake clock has
- *   reached the deadline (otherwise an early return, as wait()).
+ *   reached the deadline. The wait can end a little early (timer ticks):
+ *   the remaining time is then waited again, so an early timer is never an
+ *   early return.
  *********************************************************************/
 #include "internal.hpp"
 
@@ -309,14 +311,11 @@ namespace osprim
               *count = n;
               return fail(R::ASYNC_IO_WAIT_SYSTEM_ERROR, e);
             }
-            if (need_more && !deadline.is_forever() && awake_now() >= deadline)
-            {
-              *count = n;
-              return {
-                  R::ASYNC_IO_WAIT_TIMED_OUT, native_error_kind::NATIVE_ERROR_NONE,
-                  0};
-            }
-            break; // nothing ready, or an early timer: an early return
+            if (!need_more)
+              break; // nothing more ready
+            // The wait can end a little before the deadline: the top of
+            // the loop reports TIMED_OUT if it has passed, else waits again
+            continue;
           }
           for (ULONG k = 0; k < removed; ++k)
           {
