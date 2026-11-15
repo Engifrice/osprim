@@ -60,6 +60,16 @@ if(WIN32)
     target_link_options(osprim_test_plugin PRIVATE -static-libgcc)
   endif()
 endif()
+if(APPLE)
+  # No AddressSanitizer in the plugin (a test fixture, not code under test).
+  # On Apple, ASan registers a dylib's globals from a module constructor and
+  # never unregisters them at dlclose: the tests unload the plugin and load
+  # it again at the same address, which ASan reports as an ODR violation of
+  # osprim_test_plugin_value against itself. Appended after CXXFLAGS and
+  # LDFLAGS, so it wins; accepted (and without effect) when ASan is off.
+  target_compile_options(osprim_test_plugin PRIVATE -fno-sanitize=address)
+  target_link_options(osprim_test_plugin PRIVATE -fno-sanitize=address)
+endif()
 
 add_executable(osprim_tests
   main.cpp
