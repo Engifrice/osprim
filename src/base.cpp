@@ -317,6 +317,19 @@ namespace osprim
         return true;
       }
 
+      bool track_set_meta(
+          const char* type, uint64_t native, const track_meta& meta) noexcept
+      {
+        if (!g_lib.tracking)
+          return false;
+        registry_lock lock;
+        const size_t i = find(type, native);
+        if (i == g_registry.count)
+          return false;
+        g_registry.records[i].meta = meta;
+        return true;
+      }
+
       bool track_find(
           const char* type, track_match_fn match, const void* ctx, uint64_t* native,
           std::source_location* created_at) noexcept

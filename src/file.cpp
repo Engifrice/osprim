@@ -7,7 +7,8 @@
  * Tracking metadata:
  * - file:   words[0] access (file_access, or ACCESS_UNKNOWN when adopted),
  *           words[1] unbuffered, words[2] memory alignment, words[3] I/O
- *           alignment (both 0 when unknown).
+ *           alignment (both 0 when unknown), words[4] (FILE_META_QUEUE)
+ *           the id of the async I/O queue it is attached to (0: none).
  * - region: words[0] region_access, words[1..3] file identity,
  *           words[4] end of the mapped range in the file.
  *********************************************************************/
@@ -52,20 +53,19 @@ namespace osprim
         if (write)
           OSPRIM_ASSERT(
               access != static_cast<uint64_t>(file_access::FILE_ACCESS_READ),
-              "osprim::file_write_at: handle not opened for writing");
+              "osprim: write on a handle not opened for writing");
         else
           OSPRIM_ASSERT(
               access != static_cast<uint64_t>(file_access::FILE_ACCESS_WRITE),
-              "osprim::file_read_at: handle not opened for reading");
+              "osprim: read on a handle not opened for reading");
         if (m.words[1] != 0 && m.words[2] != 0 && m.words[3] != 0)
         {
           const bool aligned =
               offset % m.words[3] == 0 && size % m.words[3] == 0
               && reinterpret_cast<uintptr_t>(buffer) % m.words[2] == 0;
           OSPRIM_ASSERT(
-              aligned, "osprim::file_read_at/file_write_at: unbuffered handle: "
-                       "offset, size and "
-                       "buffer must follow file_unbuffered_alignment()");
+              aligned, "osprim: unbuffered handle: offset, size and buffer "
+                       "must follow file_unbuffered_alignment()");
           (void)aligned;
         }
       }
@@ -167,6 +167,15 @@ namespace osprim
       {
         return g_page_size;
       }
+
+#if OSPRIM_TRACKING
+      void file_check_io(
+          file_handle h, uint64_t offset, const void* buffer, size_t size,
+          bool write) noexcept
+      {
+        check_io(h, offset, buffer, size, write);
+      }
+#endif
 
       void file_track_open(
           native_file_t native, const file_open_desc& desc,

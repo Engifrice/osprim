@@ -10,6 +10,7 @@
 
 #include "platform.hpp"
 
+#include <osprim/async_io.hpp>
 #include <osprim/base.hpp>
 #include <osprim/clock.hpp>
 #include <osprim/dynlib.hpp>
@@ -24,6 +25,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <new>
 #include <source_location>
 
 #if OSPRIM_ARCH_X86_64
@@ -100,6 +102,10 @@ namespace osprim
       /// @brief The metadata of a recorded handle.
       /// @return false if not recorded (or tracking is off)
       bool track_get(const char* type, uint64_t native, track_meta* out) noexcept;
+      /// @brief Replaces the metadata of a recorded handle.
+      /// @return false if not recorded (or tracking is off)
+      bool track_set_meta(
+          const char* type, uint64_t native, const track_meta& meta) noexcept;
       /// @brief The first recorded handle of `type` that `match` accepts
       /// (called under the registry lock: it must not call osprim).
       /// @return false if none
@@ -124,6 +130,10 @@ namespace osprim
         return 0;
       }
       inline bool track_get(const char*, uint64_t, track_meta*) noexcept
+      {
+        return false;
+      }
+      inline bool track_set_meta(const char*, uint64_t, const track_meta&) noexcept
       {
         return false;
       }
@@ -530,6 +540,18 @@ namespace osprim
           native_file_t native, const file_open_desc& desc,
           std::source_location loc) noexcept;
 
+#if OSPRIM_TRACKING
+      /// @brief Index of the tracking word holding the async I/O queue a
+      /// file is attached to (0: none).
+      inline constexpr size_t FILE_META_QUEUE = 4;
+
+      /// @brief Checks access and unbuffered alignment of one read or write
+      /// against the tracked metadata of `h` (file.cpp).
+      void file_check_io(
+          file_handle h, uint64_t offset, const void* buffer, size_t size,
+          bool write) noexcept;
+#endif
+
       /// @brief Copies `n` bytes into a caller buffer if they fit; `*needed` = n.
       bool copy_out(
           const char* src, size_t n, char* buffer, size_t capacity,
@@ -597,6 +619,52 @@ namespace osprim
       void platform_dynlib_close(native_dynlib_t lib) noexcept;
       /// @param name Terminated
       void* platform_dynlib_symbol(native_dynlib_t lib, const char* name) noexcept;
+
+      /*****************************/
+      /* ASYNC I/O                 */
+      /*****************************/
+
+      inline constexpr const char* ASYNC_IO_QUEUE_TRACK_TYPE = "async_io_queue";
+
+      /// @brief The backend state stored in a queue's native bytes.
+      template<class T>
+      T* async_io_state(async_io_queue& q) noexcept
+      {
+        static_assert(sizeof(T) <= ASYNC_IO_QUEUE_NATIVE_SIZE);
+        static_assert(alignof(T) <= 8);
+        return std::launder(reinterpret_cast<T*>(q.native));
+      }
+
+      /// @brief The operation whose native bytes start at `native`.
+      inline async_io_op* async_io_op_from_native(void* native) noexcept
+      {
+        return reinterpret_cast<async_io_op*>(
+            static_cast<unsigned char*>(native) - offsetof(async_io_op, native));
+      }
+
+#if OSPRIM_OS_WINDOWS || OSPRIM_OS_LINUX
+      // Implemented by the platform source (async_io_windows.cpp,
+      // async_io_linux.cpp). Arguments are validated by async_io.cpp.
+
+      /// @param id The queue's tracking key, kept in its state
+      status<async_io_queue_create_result> platform_async_io_create(
+          uint32_t capacity, uint64_t id, async_io_queue& q) noexcept;
+      void platform_async_io_destroy(async_io_queue& q) noexcept;
+      /// @brief The id given to platform_async_io_create().
+      uint64_t platform_async_io_id(async_io_queue& q) noexcept;
+      /// @brief Operations submitted and not yet returned by a wait.
+      uint32_t platform_async_io_in_flight(async_io_queue& q) noexcept;
+      status<async_io_attach_result> platform_async_io_attach(
+          async_io_queue& q, native_file_t file) noexcept;
+      status<async_io_submit_result> platform_async_io_submit(
+          async_io_queue& q, async_io_op* const* ops, size_t count,
+          size_t* submitted) noexcept;
+      status<async_io_wait_result> platform_async_io_wait(
+          async_io_queue& q, async_io_op** out, size_t capacity, size_t min_count,
+          awake_instant deadline, size_t* count) noexcept;
+      void platform_async_io_cancel(async_io_queue& q, async_io_op& op) noexcept;
+      void platform_async_io_wake(async_io_queue& q) noexcept;
+#endif
 
       /*****************************/
       /* WAIT                      */
