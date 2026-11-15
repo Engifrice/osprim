@@ -39,10 +39,10 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Android")
   set(_osprim_platform_sources src/clock_linux.cpp src/wait_linux.cpp src/thread_posix.cpp src/power_linux.cpp src/topology_linux.cpp src/file_posix.cpp src/path_posix.cpp src/dynlib_posix.cpp)
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
   set(_osprim_platform 1)
-  set(_osprim_platform_sources src/clock_linux.cpp src/wait_linux.cpp src/thread_posix.cpp src/power_linux.cpp src/topology_linux.cpp src/file_posix.cpp src/path_posix.cpp src/dynlib_posix.cpp)
+  set(_osprim_platform_sources src/clock_linux.cpp src/wait_linux.cpp src/thread_posix.cpp src/power_linux.cpp src/topology_linux.cpp src/file_posix.cpp src/path_posix.cpp src/dynlib_posix.cpp src/async_io_linux.cpp)
 elseif(WIN32)
   set(_osprim_platform 3)
-  set(_osprim_platform_sources src/clock_windows.cpp src/wait_windows.cpp src/thread_windows.cpp src/power_windows.cpp src/topology_windows.cpp src/file_windows.cpp src/path_windows.cpp src/dynlib_windows.cpp)
+  set(_osprim_platform_sources src/clock_windows.cpp src/wait_windows.cpp src/thread_windows.cpp src/power_windows.cpp src/topology_windows.cpp src/file_windows.cpp src/path_windows.cpp src/dynlib_windows.cpp src/async_io_windows.cpp)
 elseif(APPLE)
   set(_osprim_platform 4)
   set(_osprim_platform_sources src/clock_apple.cpp src/wait_apple.cpp src/thread_posix.cpp src/power_apple.cpp src/topology_apple.cpp src/file_posix.cpp src/path_posix.cpp src/dynlib_posix.cpp)
@@ -63,6 +63,7 @@ else()
 endif()
 
 add_library(osprim ${_osprim_library_type}
+  include/osprim/async_io.hpp
   include/osprim/base.hpp
   include/osprim/platform.hpp
   include/osprim/clock.hpp
@@ -78,6 +79,7 @@ add_library(osprim ${_osprim_library_type}
   src/platform.hpp
   src/internal.hpp
   src/win32.hpp
+  src/async_io.cpp
   src/base.cpp
   src/clock.cpp
   src/dynlib.cpp
