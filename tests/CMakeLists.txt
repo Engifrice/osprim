@@ -32,7 +32,9 @@ if(OSPRIM_SHARED)
   target_link_libraries(osprim_tests PRIVATE
     osprim::osprim osprim_shared_plugin doctest::doctest Threads::Threads)
   target_compile_features(osprim_tests PRIVATE cxx_std_20)
-  set_target_properties(osprim_tests PROPERTIES CXX_EXTENSIONS OFF)
+  # A plain executable on iOS too (CMake makes app bundles there by
+  # default): the simulator job runs it with simctl spawn
+  set_target_properties(osprim_tests PROPERTIES CXX_EXTENSIONS OFF MACOSX_BUNDLE OFF)
   if(MSVC)
     target_compile_options(osprim_tests PRIVATE /W4 /permissive-)
   else()
@@ -96,7 +98,9 @@ target_compile_definitions(osprim_tests PRIVATE "OSPRIM_TEST_PLUGIN_PATH=\"$<TAR
 # and the tick conversion directly.
 target_include_directories(osprim_tests PRIVATE "${PROJECT_SOURCE_DIR}/src")
 target_compile_features(osprim_tests PRIVATE cxx_std_20)
-set_target_properties(osprim_tests PROPERTIES CXX_EXTENSIONS OFF)
+# A plain executable on iOS too (CMake makes app bundles there by default):
+# the simulator job runs it with simctl spawn
+set_target_properties(osprim_tests PROPERTIES CXX_EXTENSIONS OFF MACOSX_BUNDLE OFF)
 if(MSVC)
   target_compile_options(osprim_tests PRIVATE /W4 /permissive-)
 else()
