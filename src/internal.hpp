@@ -542,11 +542,11 @@ namespace osprim
           native_file_t native, const file_open_desc& desc,
           std::source_location loc) noexcept;
 
-#if OSPRIM_TRACKING
       /// @brief Index of the tracking word holding the async I/O queue a
       /// file is attached to (0: none).
       inline constexpr size_t FILE_META_QUEUE = 4;
 
+#if OSPRIM_TRACKING
       /// @brief Checks access and unbuffered alignment of one read or write
       /// against the tracked metadata of `h` (file.cpp).
       void file_check_io(
