@@ -6,6 +6,8 @@
  * - id: gettid (Linux, Android), pthread_threadid_np (Apple).
  * - class: per-thread nice through setpriority(PRIO_PROCESS, tid) (Linux,
  *   Android), QoS class (Apple).
+ * - join (Apple): a QoS override lends the joiner's class to the thread
+ *   while the join waits (pthread_override_qos_class_start_np).
  * - sleep: absolute clock_nanosleep on CLOCK_MONOTONIC (Linux, Android),
  *   mach_wait_until (Apple): both on the awake clock itself.
  *********************************************************************/
@@ -115,6 +117,34 @@ namespace osprim
       {
         ::pthread_detach(from_native(native));
       }
+
+#if OSPRIM_OS_APPLE
+      uint64_t platform_thread_boost(uint64_t native) noexcept
+      {
+        qos_class_t mine = ::qos_class_self();
+        if (mine == QOS_CLASS_UNSPECIFIED)
+          mine = QOS_CLASS_DEFAULT;
+        // The requested class (overrides are not visible): nothing to lend
+        // to a thread that already asked for as much
+        qos_class_t theirs = QOS_CLASS_UNSPECIFIED;
+        int relative       = 0;
+        const pthread_t t  = from_native(native);
+        if (::pthread_get_qos_class_np(t, &theirs, &relative) == 0
+            && theirs != QOS_CLASS_UNSPECIFIED && theirs >= mine)
+          return 0;
+        // Null on failure: the join then simply waits without lending
+        const pthread_override_t o =
+            ::pthread_override_qos_class_start_np(t, mine, 0);
+        return static_cast<uint64_t>(reinterpret_cast<uintptr_t>(o));
+      }
+
+      void platform_thread_unboost(uint64_t token) noexcept
+      {
+        if (token != 0)
+          ::pthread_override_qos_class_end_np(
+              reinterpret_cast<pthread_override_t>(static_cast<uintptr_t>(token)));
+      }
+#endif
     } // namespace detail
 
     uint64_t current_thread_id() noexcept

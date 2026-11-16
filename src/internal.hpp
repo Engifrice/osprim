@@ -250,6 +250,29 @@ namespace osprim
       /// @brief Releases a thread that may still run.
       void platform_thread_detach(uint64_t native) noexcept;
 
+#if OSPRIM_OS_APPLE
+      /// @brief Lends the calling thread's QoS class to the thread `native`
+      /// while the caller waits for it (a QoS override, if the caller's
+      /// class is higher). The wait on the state word names no owner, so
+      /// without it a BACKGROUND thread can starve under load while a
+      /// higher class waits for it.
+      /// @return A token for platform_thread_unboost(), 0 if nothing was done
+      uint64_t platform_thread_boost(uint64_t native) noexcept;
+      /// @brief Ends what platform_thread_boost() started (0: nothing).
+      /// Called before the thread is released.
+      void platform_thread_unboost(uint64_t token) noexcept;
+#else
+      // Linux and Windows bound the starvation of low-priority threads (a
+      // proportional share; the 4 s anti-starvation boost): nothing to lend
+      inline uint64_t platform_thread_boost(uint64_t) noexcept
+      {
+        return 0;
+      }
+      inline void platform_thread_unboost(uint64_t) noexcept
+      {
+      }
+#endif
+
       /*****************************/
       /* POWER                     */
       /*****************************/
