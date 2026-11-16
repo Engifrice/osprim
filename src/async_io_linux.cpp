@@ -588,6 +588,21 @@ namespace osprim
             const awake_instant now = awake_now();
             if (now >= deadline)
             {
+              // Past the deadline: what is ready is still collected. With
+              // deferred completions (or entries not handed over yet), that
+              // takes one enter, without waiting.
+              if (!entered && (s->defer_taskrun || unsubmitted(s) != 0))
+              {
+                entered      = true;
+                const long r = enter(s, 0, ENTER_GETEVENTS, nullptr);
+                n            = reap(s, out, capacity, n, &woken);
+                if (r < 0 && !transient(r))
+                {
+                  *count = n;
+                  return fail(R::ASYNC_IO_WAIT_SYSTEM_ERROR, static_cast<int>(-r));
+                }
+                continue;
+              }
               *count = n;
               return {
                   R::ASYNC_IO_WAIT_TIMED_OUT, native_error_kind::NATIVE_ERROR_NONE,
@@ -599,13 +614,13 @@ namespace osprim
             arg.ts = static_cast<uint64_t>(reinterpret_cast<uintptr_t>(&ts));
             argp   = &arg;
           }
-          const size_t missing = min_count - n;
-          const uint32_t want  = missing > s->cq_entries
-                                     ? s->cq_entries
-                                     : static_cast<uint32_t>(missing);
-          entered              = true;
-          const long r         = enter(s, want, ENTER_GETEVENTS, argp);
-          n                    = reap(s, out, capacity, n, &woken);
+          // One completion at a time, whatever is missing: the kernel sleeps
+          // until `min_complete` entries are ready, and a wake is a single
+          // one (the poll), so asking for more would sleep through it. The
+          // loop collects the rest.
+          entered      = true;
+          const long r = enter(s, 1, ENTER_GETEVENTS, argp);
+          n            = reap(s, out, capacity, n, &woken);
           if (r >= 0)
             continue; // collected, or internal completions only: check again
           if (r == -ETIME)

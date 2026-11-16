@@ -21,7 +21,8 @@
  *   the flag still set and is covered by the wait that is returning.
  * - GetQueuedCompletionStatusEx takes milliseconds: the remaining time is
  *   rounded up, and a timeout is reported only once the awake clock has
- *   reached the deadline. The wait can end a little early (timer ticks):
+ *   reached the deadline, after one last poll without waiting (packets
+ *   already queued are collected). The wait can end a little early (timer ticks):
  *   the remaining time is then waited again, so an early timer is never an
  *   early return.
  *********************************************************************/
@@ -290,12 +291,11 @@ namespace osprim
         {
           const bool need_more = n < min_count && !woken;
           DWORD wait_ms        = 0;
-          if (need_more && !timeout_ms(deadline, &wait_ms))
-          {
-            *count = n;
-            return {
-                R::ASYNC_IO_WAIT_TIMED_OUT, native_error_kind::NATIVE_ERROR_NONE, 0};
-          }
+          // Past the deadline: what is ready is still collected (without
+          // waiting) before TIMED_OUT is reported
+          const bool expired = need_more && !timeout_ms(deadline, &wait_ms);
+          if (expired)
+            wait_ms = 0;
           const size_t room = capacity - n;
           if (room == 0)
             break;
@@ -313,8 +313,15 @@ namespace osprim
             }
             if (!need_more)
               break; // nothing more ready
+            if (expired)
+            {
+              *count = n;
+              return {
+                  R::ASYNC_IO_WAIT_TIMED_OUT, native_error_kind::NATIVE_ERROR_NONE,
+                  0};
+            }
             // The wait can end a little before the deadline: the top of
-            // the loop reports TIMED_OUT if it has passed, else waits again
+            // the loop finds it expired if it has passed, else waits again
             continue;
           }
           for (ULONG k = 0; k < removed; ++k)
@@ -336,6 +343,14 @@ namespace osprim
           // Satisfied: keep collecting only while full batches say more is ready
           if ((n >= min_count || woken) && removed < ask)
             break;
+          // Past the deadline and still short: a partial batch means nothing
+          // more is ready (a full one is followed by another poll)
+          if (expired && removed < ask)
+          {
+            *count = n;
+            return {
+                R::ASYNC_IO_WAIT_TIMED_OUT, native_error_kind::NATIVE_ERROR_NONE, 0};
+          }
         }
         *count = n;
         return {};
