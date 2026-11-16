@@ -20,7 +20,9 @@
 #include <thread>
 #include <vector>
 
-#if !OSPRIM_OS_WINDOWS
+#if OSPRIM_OS_WINDOWS
+  #include "win32.hpp"
+#else
   #include <errno.h>
   #include <fcntl.h>
   #include <signal.h>
@@ -336,6 +338,42 @@ TEST_CASE("file: Windows event pool")
   CHECK(again.slot != UINT32_MAX);
   detail::file_event_release(again);
   file_close(h);
+}
+
+TEST_CASE("file: Windows pipes are refused")
+{
+  // A UNC path reaches the named pipes of a machine (\\server\pipe\name):
+  // not a regular file, whatever the form of the path
+  session s;
+  const std::string name =
+      "osprim_test_pipe_" + std::to_string(::GetCurrentProcessId());
+  const std::wstring local =
+      L"\\\\.\\pipe\\" + std::wstring(name.begin(), name.end());
+  const HANDLE server = ::CreateNamedPipeW(
+      local.c_str(), PIPE_ACCESS_DUPLEX, PIPE_TYPE_BYTE | PIPE_WAIT, 1, 4096, 4096,
+      0, nullptr);
+  REQUIRE(server != INVALID_HANDLE_VALUE);
+
+  using A = file_access;
+  using D = file_disposition;
+  using R = file_open_result;
+  // The device form is refused before any system call
+  CHECK(
+      open_result(
+          "\\\\.\\pipe\\" + name, A::FILE_ACCESS_READ_WRITE,
+          D::FILE_DISPOSITION_OPEN_EXISTING)
+      == R::FILE_OPEN_NOT_A_FILE);
+  // The UNC form opens the pipe, then refuses it. Without the network
+  // redirector (some containers), the path is not found instead: never OK.
+  const R unc = open_result(
+      "\\\\localhost\\pipe\\" + name, A::FILE_ACCESS_READ_WRITE,
+      D::FILE_DISPOSITION_OPEN_EXISTING);
+  CHECK(unc != R::FILE_OPEN_OK);
+  CHECK((unc == R::FILE_OPEN_NOT_A_FILE || unc == R::FILE_OPEN_NOT_FOUND));
+  if (unc != R::FILE_OPEN_NOT_A_FILE)
+    note("\\\\localhost\\pipe unreachable here: the type check did not run");
+  CHECK(detail::tracked_count() == 0);
+  ::CloseHandle(server);
 }
 #else
 TEST_CASE("file: FIFOs are refused without blocking")

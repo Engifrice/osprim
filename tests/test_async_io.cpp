@@ -359,6 +359,36 @@ TEST_CASE("async_io: deadlines")
   // A deadline already passed returns at once
   const auto p = async_io_queue_wait(q, out, 4, 1, deadline, count);
   CHECK(p.result == async_io_wait_result::ASYNC_IO_WAIT_TIMED_OUT);
+  CHECK(count == 0);
+
+  // A deadline already passed still collects what is ready
+  temp_dir dir;
+  constexpr size_t SIZE = 4096;
+  osprim::file_handle h = make_pattern_file(dir.path("ready.bin"), 2 * SIZE);
+  attach_ok(q, h);
+  std::vector<unsigned char> data(2 * SIZE);
+  async_io_op a =
+      make_op(h, async_io_op_kind::ASYNC_IO_OP_READ, 0, data.data(), SIZE);
+  async_io_op b =
+      make_op(h, async_io_op_kind::ASYNC_IO_OP_READ, SIZE, data.data() + SIZE, SIZE);
+  std::vector<async_io_op*> ops{&a, &b};
+  submit_all(q, ops);
+  // Two small reads of cached data: finished long before this
+  std::this_thread::sleep_for(std::chrono::milliseconds(200));
+  // Asking for one: satisfied by what is ready
+  const auto one = async_io_queue_wait(q, out, 1, 1, deadline, count);
+  CHECK(one.ok());
+  CHECK(count == 1);
+  if (count == 0)
+    collect(q, 1);
+  // Asking for more than there is: the other one, then TIMED_OUT
+  const auto more = async_io_queue_wait(q, out, 4, 4, deadline, count);
+  CHECK(more.result == async_io_wait_result::ASYNC_IO_WAIT_TIMED_OUT);
+  CHECK(count == 1);
+  if (count == 0)
+    collect(q, 1);
+  CHECK(has_pattern(data.data(), data.size(), 0));
+  file_close(h);
   async_io_queue_destroy(q);
 }
 
@@ -396,6 +426,62 @@ TEST_CASE("async_io: wakes")
     CHECK(count == 0);
     CHECK(awake_now() < deadline);
   }
+
+  // A wake ends a wait whatever it still asks for (one wake is not one of
+  // the `min_count` completions, and must not be waited for as such)
+  for (const size_t min_count : {size_t{2}, size_t{4}})
+  {
+    std::thread waker(
+        [&q]
+        {
+          std::this_thread::sleep_for(std::chrono::milliseconds(20));
+          async_io_queue_wake(q);
+        });
+    const awake_instant deadline = deadline_after(10'000 * MS);
+    const auto w = async_io_queue_wait(q, out, 4, min_count, deadline, count);
+    waker.join();
+    CHECK(w.ok());
+    CHECK(count == 0);
+    CHECK(awake_now() < deadline);
+  }
+  async_io_queue_destroy(q);
+}
+
+TEST_CASE("async_io: a wake ends a wait that has collected part of its count")
+{
+  session s;
+  async_io_queue q{};
+  if (!create_queue(q))
+    return;
+  temp_dir dir;
+  constexpr size_t SIZE = 4096;
+  osprim::file_handle h = make_pattern_file(dir.path("partial.bin"), SIZE);
+  attach_ok(q, h);
+  std::vector<unsigned char> data(SIZE);
+  async_io_op op =
+      make_op(h, async_io_op_kind::ASYNC_IO_OP_READ, 0, data.data(), SIZE);
+  std::vector<async_io_op*> ops{&op};
+  submit_all(q, ops);
+
+  // One operation in flight, three asked for: only the wake can end the wait
+  std::thread waker(
+      [&q]
+      {
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        async_io_queue_wake(q);
+      });
+  async_io_op* out[4];
+  size_t count                 = 0;
+  const awake_instant deadline = deadline_after(10'000 * MS);
+  const auto w                 = async_io_queue_wait(q, out, 4, 3, deadline, count);
+  waker.join();
+  CHECK(w.ok());
+  CHECK(count <= 1);
+  CHECK(awake_now() < deadline);
+  if (count == 0)
+    collect(q, 1);
+  CHECK(has_pattern(data.data(), data.size(), 0));
+  file_close(h);
   async_io_queue_destroy(q);
 }
 
