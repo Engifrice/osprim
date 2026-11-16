@@ -73,11 +73,15 @@ namespace osprim
         latency_lock lock;
         if (g_latency_holders == 0)
         {
-          // Controlled and off: high QoS, and timer resolution always honored
+          // Controlled and off: high QoS, and timer resolution always honored.
+          // IGNORE_TIMER_RESOLUTION is Windows 11: where the system refuses
+          // the mask, high QoS alone (Windows 10 1709+).
           if (!set_process_throttling(
                   PROCESS_POWER_THROTTLING_EXECUTION_SPEED
                       | PROCESS_POWER_THROTTLING_IGNORE_TIMER_RESOLUTION,
-                  0))
+                  0)
+              && !set_process_throttling(
+                  PROCESS_POWER_THROTTLING_EXECUTION_SPEED, 0))
             return false;
         }
         ++g_latency_holders;
