@@ -834,6 +834,13 @@ namespace osprim
         }
         if (nt_ok(st) && st != NT_STATUS_STOPPED_ON_SYMLINK)
         {
+          // Only disk files are accepted: an absolute name can reach a
+          // pipe (\\server\pipe\x), a verbatim one any device
+          if (::GetFileType(h) != FILE_TYPE_DISK)
+          {
+            ::CloseHandle(h);
+            return fail(R::FILE_OPEN_NOT_A_FILE);
+          }
           *out = h;
           return {};
         }
@@ -1101,6 +1108,7 @@ namespace osprim
                 || classify_win(e) == err::UNSUPPORTED || e == ERROR_ACCESS_DENIED))
         {
           // No POSIX semantics (FAT, network shares, older Windows), or a read-only file
+          bool cleared_read_only = false;
           if ((attributes & FILE_ATTRIBUTE_READONLY) != 0 && can_write_attributes)
           {
             FILE_BASIC_INFO basic{};
@@ -1108,8 +1116,10 @@ namespace osprim
                 (attributes & ~static_cast<DWORD>(FILE_ATTRIBUTE_READONLY)) | 0;
             if (basic.FileAttributes == 0)
               basic.FileAttributes = FILE_ATTRIBUTE_NORMAL;
-            ::SetFileInformationByHandle(
-                h, info_class(CLASS_BASIC), &basic, sizeof(basic));
+            cleared_read_only =
+                ::SetFileInformationByHandle(
+                    h, info_class(CLASS_BASIC), &basic, sizeof(basic))
+                != 0;
           }
           disposition_info legacy{};
           legacy.Delete = TRUE;
@@ -1117,6 +1127,14 @@ namespace osprim
                               h, info_class(CLASS_DISPOSITION), &legacy, sizeof(legacy))
                           != 0;
           e             = done ? 0 : ::GetLastError();
+          if (!done && cleared_read_only)
+          {
+            // Not removed: the entry keeps the attribute it had (best effort)
+            FILE_BASIC_INFO basic{};
+            basic.FileAttributes = attributes;
+            ::SetFileInformationByHandle(
+                h, info_class(CLASS_BASIC), &basic, sizeof(basic));
+          }
         }
         ::CloseHandle(h);
         if (done)
