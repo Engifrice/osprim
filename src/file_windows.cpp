@@ -430,17 +430,19 @@ namespace osprim
             return fail(R::FILE_OPEN_SYSTEM_ERROR, e);
           }
         }
-        // A verbatim path can name a device: only disk files are accepted
-        if (verbatim)
+        // Only disk files are accepted: a UNC path can name a pipe
+        // (\\server\pipe\x), a verbatim path any device
+        bool refused = ::GetFileType(h) != FILE_TYPE_DISK;
+        if (!refused && verbatim)
         {
           BY_HANDLE_FILE_INFORMATION bhfi{};
-          if (::GetFileType(h) != FILE_TYPE_DISK
-              || (::GetFileInformationByHandle(h, &bhfi)
-                  && (bhfi.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0))
-          {
-            ::CloseHandle(h);
-            return fail(R::FILE_OPEN_NOT_A_FILE);
-          }
+          refused = ::GetFileInformationByHandle(h, &bhfi)
+                    && (bhfi.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
+        }
+        if (refused)
+        {
+          ::CloseHandle(h);
+          return fail(R::FILE_OPEN_NOT_A_FILE);
         }
         *out = h;
         return {};
