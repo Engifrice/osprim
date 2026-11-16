@@ -69,20 +69,29 @@ namespace osprim
       OSPRIM_ASSERT(
           ctx.native != 0, "osprim::thread_join: not created, or already released");
       wait_word_t v = ctx.state.load(std::memory_order_acquire);
-      while (v != word(thread_state::THREAD_STATE_EXITED))
+      if (v != word(thread_state::THREAD_STATE_EXITED))
       {
         OSPRIM_ASSERT(
             v != word(thread_state::THREAD_STATE_RUNNING)
                 || ctx.id != current_thread_id(),
             "osprim::thread_join: a thread cannot join itself");
-        if (wait(ctx.state, v, deadline) == wait_result::WAIT_TIMED_OUT)
+        // The caller depends on the thread: lend it the caller's class
+        // while waiting (Apple), ended before the thread is released
+        const uint64_t boost = detail::platform_thread_boost(ctx.native);
+        bool exited          = true;
+        while (v != word(thread_state::THREAD_STATE_EXITED))
         {
-          if (ctx.state.load(std::memory_order_acquire)
-              != word(thread_state::THREAD_STATE_EXITED))
-            return thread_join_result::THREAD_JOIN_TIMED_OUT;
-          break;
+          if (wait(ctx.state, v, deadline) == wait_result::WAIT_TIMED_OUT)
+          {
+            exited = ctx.state.load(std::memory_order_acquire)
+                     == word(thread_state::THREAD_STATE_EXITED);
+            break;
+          }
+          v = ctx.state.load(std::memory_order_acquire);
         }
-        v = ctx.state.load(std::memory_order_acquire);
+        detail::platform_thread_unboost(boost);
+        if (!exited)
+          return thread_join_result::THREAD_JOIN_TIMED_OUT;
       }
       // Forget the value while it is still held: once released, the OS may
       // give it to a new thread, which would be tracked under the same key

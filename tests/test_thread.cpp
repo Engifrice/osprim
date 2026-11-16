@@ -69,24 +69,13 @@ namespace
     }
   };
 
-  /// @brief Runs `f()` on a new thread and joins it. The runner lives on the
-  /// heap: if the join times out, the thread still uses it, so it is leaked
-  /// rather than freed under the thread (which would crash a later test).
+  /// @brief Runs `f()` on a new thread and joins it.
   template<class F>
   void run_on_new_thread(F f, thread_desc desc = {})
   {
-    auto* r = new runner<F>(static_cast<F&&>(f));
-    if (!r->start(desc).ok())
-    {
-      delete r;
-      FAIL("thread_create failed");
-    }
-    if (r->join() == thread_join_result::THREAD_JOIN_OK)
-    {
-      delete r;
-      return;
-    }
-    FAIL_CHECK("the thread was still running at the join deadline (runner leaked)");
+    runner<F> r(static_cast<F&&>(f));
+    REQUIRE(r.start(desc).ok());
+    CHECK(r.join() == thread_join_result::THREAD_JOIN_OK);
   }
 
   /// @brief A one-shot gate threads can block on.
@@ -650,17 +639,6 @@ namespace
     const char* n[3] = {"OK", "DENIED", "SYSTEM_ERROR"};
     return n[static_cast<size_t>(r)];
   }
-
-  /// @brief What a thread saw when it changed its class. Static storage: a
-  /// thread outliving its join deadline still writes somewhere valid.
-  struct class_change
-  {
-    long long before;
-    long long after;
-    status<set_thread_class_result> st;
-  };
-  class_change g_class_changes[4];
-  class_change g_back_to_normal;
 } // namespace
 
 TEST_CASE("thread: scheduling classes")
@@ -669,65 +647,57 @@ TEST_CASE("thread: scheduling classes")
   const thread_class classes[] = {
       thread_class::THREAD_CLASS_BACKGROUND, thread_class::THREAD_CLASS_UTILITY,
       thread_class::THREAD_CLASS_NORMAL, thread_class::THREAD_CLASS_INTERACTIVE};
-  // The threads only change their class and read it back: at BACKGROUND
-  // they can be starved for seconds (Apple throttles CPU and I/O at that
-  // QoS, the iOS simulator heavily), so notes and checks run here.
   for (const thread_class c : classes)
   {
     CAPTURE(class_name(c));
-    class_change& r = g_class_changes[static_cast<size_t>(c)];
-    r               = {};
     // A fresh thread each time: Linux refuses to go back up after going down
     run_on_new_thread(
-        [c, &r]
+        [c]
         {
-          r.before = read_native_class();
-          r.st     = set_current_thread_class(c);
-          r.after  = read_native_class();
-        });
-    note(
-        "set_current_thread_class(%s): %s (native %lld -> %lld, error %d)",
-        class_name(c), class_result_name(r.st.result), r.before, r.after,
-        static_cast<int>(r.st.native_code));
-    CHECK(r.st.result != set_thread_class_result::SET_THREAD_CLASS_SYSTEM_ERROR);
-    if (r.st.ok())
-      CHECK(r.after == expected_native_class(c));
-    else
-      CHECK(r.after == r.before); // refused: nothing changed
+          const long long before = read_native_class();
+          const auto st          = set_current_thread_class(c);
+          const long long after  = read_native_class();
+          note(
+              "set_current_thread_class(%s): %s (native %lld -> %lld, error %d)",
+              class_name(c), class_result_name(st.result), before, after,
+              static_cast<int>(st.native_code));
+          CHECK(st.result != set_thread_class_result::SET_THREAD_CLASS_SYSTEM_ERROR);
+          if (st.ok())
+            CHECK(after == expected_native_class(c));
+          else
+            CHECK(after == before); // refused: nothing changed
 #if defined(_WIN32) || defined(__APPLE__)
-    // Every class is open to every process
-    CHECK(r.st.ok());
+          // Every class is open to every process
+          CHECK(st.ok());
 #else
-    // Only raising priority can be refused (unprivileged desktop Linux)
-    if (c != thread_class::THREAD_CLASS_INTERACTIVE)
-      CHECK(r.st.ok());
+          // Only raising priority can be refused (unprivileged desktop Linux)
+          if (c != thread_class::THREAD_CLASS_INTERACTIVE)
+            CHECK(st.ok());
 #endif
+        });
   }
 
   SUBCASE("going back to NORMAL after BACKGROUND")
   {
-    class_change& r = g_back_to_normal;
-    r               = {};
     run_on_new_thread(
-        [&r]
+        []
         {
-          r.before =
-              set_current_thread_class(thread_class::THREAD_CLASS_BACKGROUND).ok()
-                  ? 1
-                  : 0;
-          r.st    = set_current_thread_class(thread_class::THREAD_CLASS_NORMAL);
-          r.after = read_native_class();
-        });
-    CHECK(r.before == 1); // BACKGROUND was accepted
-    note("NORMAL after BACKGROUND: %s", class_result_name(r.st.result));
+          CHECK(
+              set_current_thread_class(thread_class::THREAD_CLASS_BACKGROUND).ok());
+          const auto st =
+              set_current_thread_class(thread_class::THREAD_CLASS_NORMAL);
+          note("NORMAL after BACKGROUND: %s", class_result_name(st.result));
 #if defined(_WIN32) || defined(__APPLE__)
-    CHECK(r.st.ok());
+          CHECK(st.ok());
 #else
-    // Refused to unprivileged users on desktop Linux (RLIMIT_NICE)
-    CHECK(r.st.result != set_thread_class_result::SET_THREAD_CLASS_SYSTEM_ERROR);
+          // Refused to unprivileged users on desktop Linux (RLIMIT_NICE)
+          CHECK(st.result != set_thread_class_result::SET_THREAD_CLASS_SYSTEM_ERROR);
 #endif
-    if (r.st.ok())
-      CHECK(r.after == expected_native_class(thread_class::THREAD_CLASS_NORMAL));
+          if (st.ok())
+            CHECK(
+                read_native_class()
+                == expected_native_class(thread_class::THREAD_CLASS_NORMAL));
+        });
   }
 }
 
