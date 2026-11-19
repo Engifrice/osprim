@@ -173,6 +173,42 @@ namespace osprim
         ::FreeLibrary(static_cast<HMODULE>(lib));
       }
 
+      status<dynlib_path_result> platform_dynlib_path_of(
+          const void* address, char* out, size_t* size) noexcept
+      {
+        using R   = dynlib_path_result;
+        HMODULE m = nullptr;
+        if (!::GetModuleHandleExW(
+                GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS
+                    | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                static_cast<LPCWSTR>(address), &m))
+        {
+          const DWORD e = ::GetLastError();
+          return {
+              e == ERROR_MOD_NOT_FOUND ? R::DYNLIB_PATH_NOT_FOUND
+                                       : R::DYNLIB_PATH_SYSTEM_ERROR,
+              native_error_kind::NATIVE_ERROR_WIN32, static_cast<int32_t>(e)};
+        }
+        wchar_t w[MAX_PATH_BYTES + 16];
+        const DWORD n = ::GetModuleFileNameW(m, w, MAX_PATH_BYTES + 16);
+        if (n == 0)
+          return {
+              R::DYNLIB_PATH_SYSTEM_ERROR, native_error_kind::NATIVE_ERROR_WIN32,
+              static_cast<int32_t>(::GetLastError())};
+        if (n >= MAX_PATH_BYTES + 16)
+          return {
+              R::DYNLIB_PATH_PATH_TOO_LONG, native_error_kind::NATIVE_ERROR_NONE, 0};
+        const uint32_t e = windows_report_path(w, n, out, size);
+        if (e == ERROR_FILENAME_EXCED_RANGE)
+          return {
+              R::DYNLIB_PATH_PATH_TOO_LONG, native_error_kind::NATIVE_ERROR_NONE, 0};
+        if (e != 0)
+          return {
+              R::DYNLIB_PATH_SYSTEM_ERROR, native_error_kind::NATIVE_ERROR_WIN32,
+              static_cast<int32_t>(e)};
+        return {};
+      }
+
       void* platform_dynlib_symbol(native_dynlib_t lib, const char* name) noexcept
       {
         return reinterpret_cast<void*>(

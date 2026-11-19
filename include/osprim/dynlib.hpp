@@ -10,6 +10,7 @@
  * | Load a system library (Vulkan, libandroid)    | dynlib_open(), DYNLIB_SEARCH_SYSTEM    |
  * | Find a function or variable in it             | dynlib_symbol()                        |
  * | Build a platform file name ("lib" ".so")      | DYNLIB_PREFIX, DYNLIB_SUFFIX           |
+ * | Where the code calling me is installed        | dynlib_path_of()                       |
  *
  * Rules:
  * - A dynlib_handle is the native handle (a dlopen handle, an HMODULE).
@@ -152,6 +153,40 @@ namespace osprim
     /// @param name `name_size` bytes, no terminator needed
     OSPRIM_API status<dynlib_symbol_result> dynlib_symbol(
         dynlib_handle lib, const char* name, size_t name_size, void*& out) noexcept;
+
+    /// @brief Result of dynlib_path_of().
+    enum class dynlib_path_result : uint8_t
+    {
+      DYNLIB_PATH_OK,
+      /// @brief Android: the library is loaded straight from the APK. The
+      /// path is written ("/data/app/.../base.apk!/lib/arm64-v8a/libx.so")
+      /// but names no directory that can be opened
+      DYNLIB_PATH_IN_ARCHIVE,
+      DYNLIB_PATH_BUFFER_TOO_SMALL, ///< `needed` holds the size required
+      DYNLIB_PATH_NOT_FOUND, ///< The address is in no loaded executable or library
+      DYNLIB_PATH_PATH_TOO_LONG, ///< Longer than MAX_PATH_BYTES
+      DYNLIB_PATH_SYSTEM_ERROR,  ///< See native_code
+    };
+
+    /// @brief The absolute path of the executable or library containing
+    /// `address` (a function or a variable of it), in UTF-8, without
+    /// terminator: where a DLL, a plugin or an engine loaded by a host
+    /// finds the files installed next to it. For a library opened with
+    /// dynlib_open(), pass a symbol from dynlib_symbol().
+    ///
+    /// | Platform       | Mechanism                                                            |
+    /// |----------------|----------------------------------------------------------------------|
+    /// | Windows        | GetModuleHandleExW (FROM_ADDRESS), GetModuleFileNameW; C:\x, or the  |
+    /// |                | \\?\ form only when the plain one is not valid                       |
+    /// | Linux, Android | dl_iterate_phdr; the executable through /proc/self/exe (dladdr gives |
+    /// |                | an empty name or argv[0] for it)                                     |
+    /// | Apple          | dladdr; the executable through _NSGetExecutablePath                  |
+    ///
+    /// The path is the one the loader recorded, made canonical on Apple and
+    /// Linux (realpath semantics, as path_canonical()): a snapshot for
+    /// opening the directory once, not a name to keep.
+    OSPRIM_API status<dynlib_path_result> dynlib_path_of(
+        const void* address, char* buffer, size_t capacity, size_t& needed) noexcept;
   } // namespace v0_1
 } // namespace osprim
 

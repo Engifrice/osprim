@@ -113,5 +113,24 @@ namespace osprim
       buffer[name_size] = '\0';
       return dynlib_symbol(lib, buffer, out);
     }
+
+    status<dynlib_path_result> dynlib_path_of(
+        const void* address, char* buffer, size_t capacity, size_t& needed) noexcept
+    {
+      using R = dynlib_path_result;
+      needed  = 0;
+      if (address == nullptr)
+        return {R::DYNLIB_PATH_NOT_FOUND, native_error_kind::NATIVE_ERROR_NONE, 0};
+      char path[MAX_PATH_BYTES + 1];
+      size_t n          = 0;
+      const status<R> s = detail::platform_dynlib_path_of(address, path, &n);
+      if (!s.ok() && s.result != R::DYNLIB_PATH_IN_ARCHIVE)
+        return s;
+      if (!detail::copy_out(path, n, buffer, capacity, &needed))
+        return {
+            R::DYNLIB_PATH_BUFFER_TOO_SMALL, native_error_kind::NATIVE_ERROR_NONE,
+            0};
+      return s;
+    }
   } // namespace v0_1
 } // namespace osprim
