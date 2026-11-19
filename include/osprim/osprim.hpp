@@ -9,6 +9,7 @@
 #include <osprim/clock.hpp>
 #include <osprim/dynlib.hpp>
 #include <osprim/file.hpp>
+#include <osprim/known_dir.hpp>
 #include <osprim/path.hpp>
 #include <osprim/platform.hpp>
 #include <osprim/power.hpp>
