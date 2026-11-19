@@ -52,6 +52,7 @@ namespace
     for (initialize_result r :
          {initialize_result::INITIALIZE_OK,
           initialize_result::INITIALIZE_OUT_OF_MEMORY,
+          initialize_result::INITIALIZE_INVALID_OVERRIDE,
           initialize_result::INITIALIZE_SYSTEM_ERROR})
       n += static_cast<int>(r);
     for (clock_id c :
@@ -112,6 +113,49 @@ namespace
          {thermal_result::THERMAL_OK, thermal_result::THERMAL_UNSUPPORTED,
           thermal_result::THERMAL_UNAVAILABLE, thermal_result::THERMAL_SYSTEM_ERROR})
       n += static_cast<int>(r);
+    for (known_dir d :
+         {known_dir::KNOWN_DIR_DATA, known_dir::KNOWN_DIR_STATE,
+          known_dir::KNOWN_DIR_CACHE, known_dir::KNOWN_DIR_TEMP,
+          known_dir::KNOWN_DIR_EXECUTABLE, known_dir::KNOWN_DIR_RESOURCES})
+      n += known_dir_bit(d);
+    for (known_dir_get_result r :
+         {known_dir_get_result::KNOWN_DIR_GET_OK,
+          known_dir_get_result::KNOWN_DIR_GET_BUFFER_TOO_SMALL,
+          known_dir_get_result::KNOWN_DIR_GET_UNSUPPORTED,
+          known_dir_get_result::KNOWN_DIR_GET_NOT_CONFIGURED,
+          known_dir_get_result::KNOWN_DIR_GET_PATH_TOO_LONG,
+          known_dir_get_result::KNOWN_DIR_GET_SYSTEM_ERROR})
+      n += static_cast<int>(r);
+    for (known_dir_open_result r :
+         {known_dir_open_result::KNOWN_DIR_OPEN_OK,
+          known_dir_open_result::KNOWN_DIR_OPEN_UNSUPPORTED,
+          known_dir_open_result::KNOWN_DIR_OPEN_NOT_CONFIGURED,
+          known_dir_open_result::KNOWN_DIR_OPEN_NOT_FOUND,
+          known_dir_open_result::KNOWN_DIR_OPEN_NOT_A_DIRECTORY,
+          known_dir_open_result::KNOWN_DIR_OPEN_ACCESS_DENIED,
+          known_dir_open_result::KNOWN_DIR_OPEN_PATH_TOO_LONG,
+          known_dir_open_result::KNOWN_DIR_OPEN_TOO_MANY_OPEN,
+          known_dir_open_result::KNOWN_DIR_OPEN_NO_SPACE,
+          known_dir_open_result::KNOWN_DIR_OPEN_SYSTEM_ERROR})
+      n += static_cast<int>(r);
+    for (dynlib_path_result r :
+         {dynlib_path_result::DYNLIB_PATH_OK,
+          dynlib_path_result::DYNLIB_PATH_IN_ARCHIVE,
+          dynlib_path_result::DYNLIB_PATH_BUFFER_TOO_SMALL,
+          dynlib_path_result::DYNLIB_PATH_NOT_FOUND,
+          dynlib_path_result::DYNLIB_PATH_PATH_TOO_LONG,
+          dynlib_path_result::DYNLIB_PATH_SYSTEM_ERROR})
+      n += static_cast<int>(r);
+    for (dir_set_backup_excluded_result r :
+         {dir_set_backup_excluded_result::DIR_SET_BACKUP_EXCLUDED_OK,
+          dir_set_backup_excluded_result::DIR_SET_BACKUP_EXCLUDED_UNSUPPORTED,
+          dir_set_backup_excluded_result::DIR_SET_BACKUP_EXCLUDED_CONFLICT,
+          dir_set_backup_excluded_result::DIR_SET_BACKUP_EXCLUDED_DELETED,
+          dir_set_backup_excluded_result::DIR_SET_BACKUP_EXCLUDED_ACCESS_DENIED,
+          dir_set_backup_excluded_result::DIR_SET_BACKUP_EXCLUDED_NO_SPACE,
+          dir_set_backup_excluded_result::DIR_SET_BACKUP_EXCLUDED_SYSTEM_ERROR})
+      n += static_cast<int>(r);
+    n += static_cast<int>(KNOWN_DIR_COUNT);
     n += static_cast<int>(ACTIVITY_REASON_MAX + PERF_SESSION_MAX_THREADS);
     n += FOREVER_NS == awake_instant::forever().ns;
     return n;

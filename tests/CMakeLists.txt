@@ -88,6 +88,7 @@ add_executable(osprim_tests
   test_file.cpp
   test_region.cpp
   test_path.cpp
+  test_known_dir.cpp
   test_dynlib.cpp
   test_macros.cpp
 )
