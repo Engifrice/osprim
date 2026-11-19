@@ -6,20 +6,21 @@ osprim provides **mechanism, not policy**: the lowest-level building blocks, wit
 ## Status:
 [![CI](https://github.com/Engifrice/osprim/actions/workflows/CI.yml/badge.svg?branch=main&event=push)](https://github.com/Engifrice/osprim/actions/workflows/CI.yml)
 
-| Module            | Header                | Contents                                                                                                                                                       |
-| ----------------- | --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Base              | `osprim/base.hpp`     | Library lifetime, results, native errors, diagnostics (leak and misuse reports)                                                                                |
-| Clock             | `osprim/clock.hpp`    | Awake, continuous and wall clocks; raw tick counter                                                                                                            |
-| Wait              | `osprim/wait.hpp`     | Wait on an address until woken or an awake deadline; wake one or all                                                                                           |
-| Thread            | `osprim/thread.hpp`   | Create, join with a deadline, detach; ids, names, scheduling classes; yield, spin hint, precise sleep                                                          |
-| Power             | `osprim/power.hpp`    | Timer resolution, process activity, performance sessions, thermal state                                                                                        |
-| Topology          | `osprim/topology.hpp` | CPU budget, core classes and caches, thread affinity, cache line constants                                                                                     |
-| File              | `osprim/file.hpp`     | Open, positioned read and write, flush, size and identity, adoption of native handles, unbuffered I/O                                                          |
-| Region            | `osprim/region.hpp`   | Mapped regions of files                                                                                                                                        |
-| Async I/O         | `osprim/async_io.hpp` | Asynchronous reads and writes of regular files where the kernel performs them (I/O completion ports, io_uring): queues, batched submission, deadlines, wakes   |
-| Path              | `osprim/path.hpp`     | Directory handles and operations relative to them: entry information, create, remove, rename, symlink targets, listing, canonical paths, the current directory |
-| Dynamic libraries | `osprim/dynlib.hpp`   | Load by path or from the system, symbols, release                                                                                                              |
-| Platform          | `osprim/platform.hpp` | `OSPRIM_OS_*` and `OSPRIM_ARCH_*` macros                                                                                                                       |
+| Module            | Header                 | Contents                                                                                                                                                                         |
+| ----------------- | ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Base              | `osprim/base.hpp`      | Library lifetime, results, native errors, diagnostics (leak and misuse reports)                                                                                                  |
+| Clock             | `osprim/clock.hpp`     | Awake, continuous and wall clocks; raw tick counter                                                                                                                              |
+| Wait              | `osprim/wait.hpp`      | Wait on an address until woken or an awake deadline; wake one or all                                                                                                             |
+| Thread            | `osprim/thread.hpp`    | Create, join with a deadline, detach; ids, names, scheduling classes; yield, spin hint, precise sleep                                                                            |
+| Power             | `osprim/power.hpp`     | Timer resolution, process activity, performance sessions, thermal state                                                                                                          |
+| Topology          | `osprim/topology.hpp`  | CPU budget, core classes and caches, thread affinity, cache line constants                                                                                                       |
+| File              | `osprim/file.hpp`      | Open, positioned read and write, flush, size and identity, adoption of native handles, unbuffered I/O                                                                            |
+| Region            | `osprim/region.hpp`    | Mapped regions of files                                                                                                                                                          |
+| Async I/O         | `osprim/async_io.hpp`  | Asynchronous reads and writes of regular files where the kernel performs them (I/O completion ports, io_uring): queues, batched submission, deadlines, wakes                     |
+| Path              | `osprim/path.hpp`      | Directory handles and operations relative to them: entry information, create, remove, rename, symlink targets, listing, canonical paths, the current directory, backup exclusion |
+| Known directories | `osprim/known_dir.hpp` | Where the platform wants data, state, caches and temporary files; the executable's and resources' directories; overrides                                                         |
+| Dynamic libraries | `osprim/dynlib.hpp`    | Load by path or from the system, symbols, release, the path of the module containing an address                                                                                  |
+| Platform          | `osprim/platform.hpp`  | `OSPRIM_OS_*` and `OSPRIM_ARCH_*` macros                                                                                                                                         |
 
 `osprim/osprim.hpp` includes everything.
 
@@ -295,6 +296,7 @@ A `file_handle` is the native handle: no state outside handle tracking, free to 
 | Where a symlink points                         | `path_read_link_at()`                                |
 | The real path of an open file or directory     | `path_canonical()`                                   |
 | The current directory                          | `current_directory_get()`, `current_directory_set()` |
+| Keep a directory out of backups                | `dir_set_backup_excluded()`                          |
 
 **Every operation is relative to a directory handle** (or takes an absolute path with `NO_DIRECTORY`). A path is a name resolved again on every call, and what it names can change in between (editors, version control, sync clients, users, attackers: time-of-check to time-of-use races). So:
 - **Do not check, then act**: act and read the result. Creating, opening and renaming without replacing are atomic, and `ALREADY_EXISTS` or `NOT_FOUND` are results, not prior checks.
@@ -315,7 +317,66 @@ A `file_handle` is the native handle: no state outside handle tracking, free to 
 
 **Symlinks** are followed (`NORMAL`), detected (`SYMLINK` entries) or refused (`NO_SYMLINKS`), and their targets can be read; the library does not create them. On Windows, `SYMLINK` means a name surrogate: symbolic links, WSL symlinks and junctions; volume mount points are directories, and cloud placeholders are ordinary files (no download is ever triggered). Removing or renaming a link acts on the link; a directory link is removed with `PATH_KIND_FILE` on every platform.
 
+**Backup exclusion** (`dir_set_backup_excluded()`) is for content that can be downloaded or rebuilt again: `kCFURLIsExcludedFromBackupKey` on Apple (iCloud and computer backups on iOS, Time Machine on macOS), a `CACHEDIR.TAG` on Linux (honored by restic, borg, GNU tar and rustic), `UNSUPPORTED` on Windows (no mechanism; its own backups skip AppData) and Android (backup rules live in the manifest; `no_backup/` and `cache/` are never backed up).
+
 **Listing** uses a buffer the caller owns (`dir_reader`), at least `DIR_LIST_MIN_BUFFER` (one entry with the longest name: 792 bytes on Linux, 808 on Apple, 616 on Windows). Locally any size from 4 KiB lists at the same speed; on network shares and FUSE each call can be a round trip, so `DIR_LIST_RECOMMENDED_BUFFER` is 32 KiB (64 KiB on Windows, the most Windows 8.1 and earlier accept on network shares). Listings are unordered and not snapshots; on Linux, names are raw bytes and may not be UTF-8.
+
+## Known directories
+
+| Your goal                                         | Use                                       |
+| ------------------------------------------------- | ----------------------------------------- |
+| Work inside a known directory without races       | `known_dir_open()`, then the `*_at` calls |
+| The path, for logs, display or another API        | `known_dir_get()`                         |
+| Add my own vendor/game subdirectory, or not?      | `known_dir_info::app_private`             |
+| Do two purposes share one directory?              | `known_dir_info::same_as`                 |
+| Keep downloaded content out of backups            | `dir_set_backup_excluded()`               |
+| Redirect directories (tests, portable installs)   | `init_desc::known_dir_overrides`          |
+| Where the code calling me lives (a DLL, a plugin) | `dynlib_path_of()`                        |
+
+**Purposes, not folders.** Every platform has its own special folders; osprim maps each purpose to the one the platform intends for it.
+
+| `known_dir` | Windows                              | macOS, iOS                                            | Linux                                    | Android                         |
+| ----------- | ------------------------------------ | ----------------------------------------------------- | ---------------------------------------- | ------------------------------- |
+| DATA        | `FOLDERID_LocalAppData`              | `~/Library/Application Support`                       | `$XDG_DATA_HOME`, else `~/.local/share`  | `<root>/files`                  |
+| STATE       | (the same)                           | (the same)                                            | `$XDG_STATE_HOME`, else `~/.local/state` | `<root>/no_backup`              |
+| CACHE       | (the same)                           | `~/Library/Caches`                                    | `$XDG_CACHE_HOME`, else `~/.cache`       | `<root>/cache`                  |
+| TEMP        | `GetTempPath2W`, else `GetTempPathW` | `confstr(_CS_DARWIN_USER_TEMP_DIR)`                   | `$TMPDIR`, else `/tmp`                   | `<root>/cache`                  |
+| EXECUTABLE  | directory of the `.exe`              | directory of the executable                           | directory of `/proc/self/exe`            | `UNSUPPORTED`                   |
+| RESOURCES   | (the same)                           | macOS: the main bundle's `Resources`; iOS: the bundle | (the same)                               | `UNSUPPORTED` (`AAssetManager`) |
+
+- **DATA**: what the user would miss (saves, settings, profiles), included in the platform's backup where there is one.
+- **STATE**: what the application keeps but can rebuild or download again (downloaded content, shader caches, logs). Where STATE is also DATA (Windows, Apple), put it in a subdirectory and exclude that from backups.
+- **CACHE**: what can be lost at any time. **TEMP**: files for the current run; create entries with unique names, never replacing.
+- **EXECUTABLE, RESOURCES**: read-only (Program Files, `/usr`, signed bundles).
+
+**What the platform does with each one** comes with every query:
+
+| `known_dir_info` | Meaning                                                                    | True on                                                                                                                     |
+| ---------------- | -------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `app_private`    | Already specific to the application: do not add a vendor/game subdirectory | iOS, Android, sandboxed macOS, Flatpak, Snap; EXECUTABLE and RESOURCES; overrides                                           |
+| `backed_up`      | The platform's own backup includes it                                      | DATA and STATE on Apple (Time Machine, iCloud), DATA on Android (Auto Backup)                                               |
+| `may_be_purged`  | The system deletes entries on its own (low storage, age, reboot)           | TEMP everywhere, CACHE on Apple and Android                                                                                 |
+| `same_as`        | The other purposes resolving to the same path                              | Windows DATA, STATE and CACHE; Apple DATA and STATE; Android CACHE and TEMP; EXECUTABLE and RESOURCES outside macOS bundles |
+
+`app_private` is false whenever osprim cannot tell: a wrong false only costs an extra subdirectory. `same_as` compares paths as text (Windows: ignoring case), so one directory reached through two spellings (symlinks, 8.3 names) can be missed, but two directories are never reported as one; for a certain answer, compare identities with `path_info_at(dir, ".", ...)`. **Never delete a known directory itself**, only what you created in it: CACHE is `LocalAppData` on Windows, shared with every application.
+
+```cpp
+osprim::dir_handle state{};
+osprim::known_dir_info info{};
+if (osprim::known_dir_open(osprim::known_dir::KNOWN_DIR_STATE, true, state, &info).ok())
+{
+  // !info.app_private: add your own vendor/game subdirectory
+  // info.same_as has DATA (Windows, Apple): one more, excluded from backups
+  // ... dir_create_at(state, ...), dir_set_backup_excluded(...)
+  osprim::dir_close(state);
+}
+```
+
+**Snapshot.** `initialize()` copies the overrides and the environment it needs (`HOME`, `XDG_*`, `TMPDIR`, the Flatpak, Snap and App Sandbox markers) into a static table; later changes to the environment are ignored. Every function may be called from any thread.
+
+**Overrides** (`init_desc::known_dir_overrides`) replace any purpose on every platform: tests, portable installs, development builds pointing RESOURCES at the source tree. They are copied (absolute, UTF-8, normalized on Windows, at most one per purpose, or `initialize()` fails with `INITIALIZE_INVALID_OVERRIDE`) and not checked for existence. `known_dir_open()` with `create` makes every missing component (mode 0700 on POSIX).
+
+**Android.** The application's directories live under a data root only Java knows. From Android 13 (API 33) the framework exports `$TMPDIR = <root>/cache` to native code, and osprim takes the root from it (checked to belong to the process's user). Before Android 13, pass `ANativeActivity::internalDataPath` (or GameActivity's) as the DATA override: it is `<root>/files`, and STATE, CACHE and TEMP are derived from it. Without either, the purposes are `NOT_CONFIGURED`. Store-delivered content (Play Asset Delivery, OBB, Apple's Background Assets) is not a known directory: open the path its SDK gives with `NO_DIRECTORY`.
 
 ## Dynamic libraries
 
@@ -326,6 +387,7 @@ A `file_handle` is the native handle: no state outside handle tracking, free to 
 | Find a function or variable                     | `dynlib_symbol()` (terminated name, or pointer and size)  |
 | Build a platform file name                      | `DYNLIB_PREFIX` + name + `DYNLIB_SUFFIX`                  |
 | Know why a load failed                          | `dynlib_open_desc::message`, a buffer you own             |
+| Where the code calling me is installed          | `dynlib_path_of()` (any function or variable of it)       |
 
 A `dynlib_handle` is the native handle. **Loading a library again returns the same handle** with one more reference; every `dynlib_open()` needs its `dynlib_close()` (tracked builds count the references and report the leftovers as one leak). Symbols are bound at load time and stay local (`RTLD_NOW | RTLD_LOCAL`, the only behavior Windows has): a missing symbol fails the load instead of the first call, and one library never satisfies another's undeclared dependencies. Initializers run under the loader lock: never load or release a library from inside one.
 
@@ -337,6 +399,8 @@ A `dynlib_handle` is the native handle. **Loading a library again returns the sa
 | `SYSTEM`                     | `dlopen` of the bare name (the loader's search)                                  | `LOAD_LIBRARY_SEARCH_DEFAULT_DIRS`: the application directory, System32, `AddDllDirectory` directories; never the current directory or `PATH` |
 | Message                      | `dlerror()`, names a missing dependency                                          | The system message for the error code                                                                                                         |
 | `NOT_FOUND`, `ACCESS_DENIED` | The file itself is missing or unreadable (a missing dependency is `LOAD_FAILED`) | The same                                                                                                                                      |
+
+**`dynlib_path_of()`** gives the canonical path of the executable or library containing an address: `GetModuleHandleExW` and `GetModuleFileNameW` on Windows, `dl_iterate_phdr` on Linux and Android (the executable through `/proc/self/exe`), `dladdr` on Apple. A library loaded straight from an APK returns `DYNLIB_PATH_IN_ARCHIVE` with its `base.apk!/lib/...` path, which names no directory.
 
 Platform rules: iOS loads only signed libraries inside the app bundle (`Frameworks/`) or the OS, never downloaded code. Android loads only the app's own libraries and the public NDK ones; uncompressed, page-aligned libraries load straight from the APK (`base.apk!/lib/arm64-v8a/libx.so`).
 
@@ -350,7 +414,7 @@ Platform rules: iOS loads only signed libraries inside the app bundle (`Framewor
 | Android 8.0+ (API 26) | arm64-v8a, x86_64 | NDK Clang      | build, tests on the x86_64 emulator |
 | iOS 17.4+             | arm64             | Apple Clang    | build, tests in the simulator       |
 
-64-bit only. The Apple minimums come from `os_sync_wait_on_address` (a build for an older deployment target stops with an error). On Windows, osprim links `synchronization.lib` and `winmm.lib`; on Apple, Foundation and the Objective-C runtime; on Android, libandroid is loaded at run time.
+64-bit only. The Apple minimums come from `os_sync_wait_on_address` (a build for an older deployment target stops with an error). On Windows, osprim links `synchronization.lib` and `winmm.lib`; on Apple, Foundation, CoreFoundation and the Objective-C runtime; on Android, libandroid is loaded at run time.
 
 ## Building
 
