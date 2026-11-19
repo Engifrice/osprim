@@ -116,7 +116,7 @@ namespace osprim
       }
 
       /// @brief Writes the first `n` bytes of `p` as a reported path.
-      [[maybe_unused]] status<GR> report(
+      [[maybe_unused]] status<GR> report_path(
           const char* p, size_t n, char* out, size_t* size) noexcept
       {
         if (n > MAX_PATH_BYTES)
@@ -163,7 +163,7 @@ namespace osprim
         if (n > deleted_size
             && ::memcmp(buffer + n - deleted_size, deleted, deleted_size) == 0)
           n -= deleted_size;
-        return report(buffer, parent_size(buffer, n), out, size);
+        return report_path(buffer, parent_size(buffer, n), out, size);
       }
 #endif
 
@@ -207,7 +207,7 @@ namespace osprim
         size_t n = trim(real, ::strlen(real));
         if (parent)
           n = parent_size(real, n);
-        return report(real, n, out, size);
+        return report_path(real, n, out, size);
       }
 #endif
 
@@ -531,7 +531,7 @@ namespace osprim
             return fail(GR::KNOWN_DIR_GET_SYSTEM_ERROR, errno);
           if (r > sizeof(buffer))
             return fail(GR::KNOWN_DIR_GET_PATH_TOO_LONG);
-          return report(buffer, trim(buffer, r - 1), out, size);
+          return report_path(buffer, trim(buffer, r - 1), out, size);
         }
         case known_dir::KNOWN_DIR_EXECUTABLE:
         {
