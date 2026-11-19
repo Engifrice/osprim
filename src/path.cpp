@@ -408,6 +408,19 @@ namespace osprim
     }
 
     /*****************************/
+    /* BACKUPS                   */
+    /*****************************/
+
+    status<dir_set_backup_excluded_result> dir_set_backup_excluded(
+        dir_handle d, bool excluded) noexcept
+    {
+      OSPRIM_ASSERT(
+          !is_no_directory(d),
+          "osprim::dir_set_backup_excluded: not a directory handle");
+      return detail::platform_dir_set_backup_excluded(d.native, excluded);
+    }
+
+    /*****************************/
     /* CANONICAL PATHS           */
     /*****************************/
 

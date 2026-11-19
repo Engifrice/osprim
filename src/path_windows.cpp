@@ -1560,6 +1560,30 @@ namespace osprim
         return {};
       }
 
+      uint32_t windows_report_path(
+          const wchar_t* w, size_t units, char* out, size_t* size) noexcept
+      {
+        if (units > MAX_PATH_BYTES + 16)
+          return ERROR_FILENAME_EXCED_RANGE;
+        char utf8[3 * (MAX_PATH_BYTES + 16)];
+        size_t len = 0;
+        if (!to_utf8(w, units, utf8, sizeof(utf8), &len))
+          return ::GetLastError();
+        if (len > sizeof(utf8))
+          return ERROR_FILENAME_EXCED_RANGE;
+        strip_verbatim(utf8, &len);
+        // "C:\dir\" -> "C:\dir"; roots ("C:\", "\\?\C:\") keep their separator
+        while (len > 3 && (utf8[len - 1] == '\\' || utf8[len - 1] == '/')
+               && utf8[len - 2] != ':')
+          --len;
+        if (len > MAX_PATH_BYTES)
+          return ERROR_FILENAME_EXCED_RANGE;
+        ::memcpy(out, utf8, len);
+        out[len] = '\0';
+        *size    = len;
+        return 0;
+      }
+
       /*****************************/
       /* CURRENT DIRECTORY         */
       /*****************************/

@@ -359,6 +359,11 @@ namespace osprim
           (desc.alloc.alloc_fn == nullptr) == (desc.alloc.free_fn == nullptr),
           "osprim::initialize: alloc_fn and free_fn must be both set or both null");
 
+      // First: an invalid override leaves nothing to undo
+      const status<initialize_result> dirs = detail::known_dir_initialize(desc);
+      if (!dirs.ok())
+        return dirs;
+
       g_lib.on_diagnostic   = desc.on_diagnostic;
       g_lib.diagnostic_user = desc.diagnostic_user;
       g_lib.alloc           = desc.alloc;
@@ -368,9 +373,12 @@ namespace osprim
 #if OSPRIM_TRACKING
       g_lib.tracking = desc.track_handles;
       if (g_lib.tracking && !registry_initialize())
+      {
+        detail::known_dir_deinitialize();
         return {
             initialize_result::INITIALIZE_OUT_OF_MEMORY,
             native_error_kind::NATIVE_ERROR_NONE, 0};
+      }
 #else
       g_lib.tracking = false;
 #endif
@@ -382,6 +390,7 @@ namespace osprim
         if (g_lib.tracking)
           registry_deinitialize();
 #endif
+        detail::known_dir_deinitialize();
         return clocks;
       }
 
@@ -402,6 +411,7 @@ namespace osprim
 #endif
       detail::power_deinitialize();
       detail::file_deinitialize();
+      detail::known_dir_deinitialize();
       g_lib = library_state{};
     }
   } // namespace v0_1

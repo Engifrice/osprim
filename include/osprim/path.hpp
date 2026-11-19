@@ -19,6 +19,7 @@
  * | Where a symlink points                        | path_read_link_at()                  |
  * | The real path of an open file or directory    | path_canonical()                     |
  * | The current directory                         | current_directory_get() / _set()     |
+ * | Keep a directory out of backups               | dir_set_backup_excluded()            |
  *
  * Avoiding races (TOCTOU): a path is a name resolved again on every call,
  * and what it names can change between two calls (editors, version
@@ -456,6 +457,49 @@ namespace osprim
     /// @pre dir_list_begin() was called with `d` and `r`
     OSPRIM_API status<dir_list_result> dir_list_next(
         dir_handle d, dir_reader& r, dir_entry& out) noexcept;
+
+    /*****************************/
+    /* BACKUPS                   */
+    /*****************************/
+
+    /// @brief Result of dir_set_backup_excluded().
+    enum class dir_set_backup_excluded_result : uint8_t
+    {
+      DIR_SET_BACKUP_EXCLUDED_OK,
+      DIR_SET_BACKUP_EXCLUDED_UNSUPPORTED, ///< Windows, Android: nothing changed
+      /// @brief Linux: a CACHEDIR.TAG without the signature is in the way
+      /// (left untouched)
+      DIR_SET_BACKUP_EXCLUDED_CONFLICT,
+      DIR_SET_BACKUP_EXCLUDED_DELETED, ///< Apple: the directory no longer has a name
+      DIR_SET_BACKUP_EXCLUDED_ACCESS_DENIED,
+      DIR_SET_BACKUP_EXCLUDED_NO_SPACE,
+      DIR_SET_BACKUP_EXCLUDED_SYSTEM_ERROR, ///< See native_code
+    };
+
+    /// @brief Excludes the directory `d` and everything in it from backups
+    /// (or includes it again), for content that can be downloaded or
+    /// rebuilt again. Idempotent.
+    ///
+    /// | Platform | Mechanism                         | Honored by                     |
+    /// |----------|-----------------------------------|--------------------------------|
+    /// | Apple    | kCFURLIsExcludedFromBackupKey     | iCloud and computer backups    |
+    /// |          | (path from F_GETPATH)             | (iOS), Time Machine (macOS)    |
+    /// | Linux    | CACHEDIR.TAG in the directory,    | restic, borg, GNU tar, rustic  |
+    /// |          | created and removed relative to   | (--exclude-caches): a de facto |
+    /// |          | the handle, signature checked     | standard                       |
+    /// | Windows  | UNSUPPORTED: no mechanism; its    | -                              |
+    /// |          | backups skip AppData              |                                |
+    /// | Android  | UNSUPPORTED: backup rules are     | -                              |
+    /// |          | fixed in the manifest; STATE and  |                                |
+    /// |          | CACHE are never backed up         |                                |
+    ///
+    /// Apple: the mark goes through the directory's current path, so a
+    /// rename at the same moment can make it fail (DELETED), or mark the
+    /// entry that took the old name; harmless in a directory private to
+    /// the application.
+    /// The mark travels with the directory when it is moved or copied.
+    OSPRIM_API status<dir_set_backup_excluded_result> dir_set_backup_excluded(
+        dir_handle d, bool excluded) noexcept;
 
     /*****************************/
     /* CANONICAL PATHS           */

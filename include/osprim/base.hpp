@@ -146,6 +146,8 @@ namespace osprim
           nullptr;
     };
 
+    struct known_dir_override; // known_dir.hpp
+
     /// @brief Parameters of initialize().
     struct init_desc
     {
@@ -156,6 +158,11 @@ namespace osprim
       allocator alloc{};
       /// @brief Track handles (ignored if OSPRIM_TRACKING is 0)
       bool track_handles = true;
+      /// @brief Directories replacing those of the platform (tests,
+      /// portable installs, Android before 13), at most one per purpose.
+      /// Copied: they need not outlive initialize(). See known_dir.hpp.
+      const known_dir_override* known_dir_overrides = nullptr;
+      size_t known_dir_override_count               = 0;
     };
 
     /// @brief Result of initialize().
@@ -163,7 +170,11 @@ namespace osprim
     {
       INITIALIZE_OK,
       INITIALIZE_OUT_OF_MEMORY, ///< Tracking bookkeeping could not be allocated
-      INITIALIZE_SYSTEM_ERROR,  ///< The OS refused a setup step (see native_code)
+      /// @brief A known directory override is not absolute, not UTF-8,
+      /// longer than MAX_PATH_BYTES, or names a purpose twice (nothing was
+      /// initialized)
+      INITIALIZE_INVALID_OVERRIDE,
+      INITIALIZE_SYSTEM_ERROR, ///< The OS refused a setup step (see native_code)
     };
 
     /// @brief Initializes the library. Does all one-off work (clock calibration,

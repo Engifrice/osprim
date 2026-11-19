@@ -15,6 +15,7 @@
 #include <osprim/clock.hpp>
 #include <osprim/dynlib.hpp>
 #include <osprim/file.hpp>
+#include <osprim/known_dir.hpp>
 #include <osprim/path.hpp>
 #include <osprim/power.hpp>
 #include <osprim/region.hpp>
@@ -628,6 +629,103 @@ namespace osprim
       status<current_directory_set_result> platform_current_directory_set(
           const char* path, size_t size) noexcept;
 
+#if OSPRIM_OS_WINDOWS
+      /// @brief A Win32 path (plain or \\?\) as osprim reports paths: UTF-8,
+      /// the plain form when it is valid, no trailing separator except at a
+      /// root. `out` holds MAX_PATH_BYTES + 1 bytes and is terminated.
+      /// @return 0, ERROR_FILENAME_EXCED_RANGE above MAX_PATH_BYTES, or the
+      /// conversion error
+      uint32_t windows_report_path(
+          const wchar_t* w, size_t units, char* out, size_t* size) noexcept;
+#endif
+
+      /*****************************/
+      /* KNOWN DIRECTORIES         */
+      /*****************************/
+
+      /// @brief One purpose's entry in the table filled by initialize().
+      struct known_dir_slot
+      {
+        /// @brief Terminated, valid when `set`
+        char path[MAX_PATH_BYTES + 1];
+        size_t size;
+        /// @brief The path is known: overridden, or taken from the snapshot
+        bool set;
+        /// @brief Given (or, Android, derived from an overridden DATA)
+        bool overridden;
+        /// @brief When not `set`: KNOWN_DIR_GET_OK to resolve at each call,
+        /// otherwise the answer (UNSUPPORTED, NOT_CONFIGURED, PATH_TOO_LONG)
+        known_dir_get_result error;
+      };
+
+      /// @brief The table, written by initialize() only (read from any
+      /// thread afterwards).
+      struct known_dir_table
+      {
+        known_dir_slot slots[KNOWN_DIR_COUNT];
+        /// @brief KNOWN_DIR_FLAG_*
+        uint32_t flags;
+      };
+
+      /// @brief The process runs in a per-application sandbox (Flatpak, Snap,
+      /// the macOS App Sandbox; always on iOS).
+      inline constexpr uint32_t KNOWN_DIR_FLAG_SANDBOXED = 1;
+
+      extern known_dir_table g_known_dirs;
+
+      /// @brief Checks and copies the overrides, then lets the platform
+      /// take its snapshot. On failure the table is left empty.
+      status<initialize_result> known_dir_initialize(const init_desc& desc) noexcept;
+      void known_dir_deinitialize() noexcept;
+
+      /// @brief Sets a slot to `n` bytes of `p`. PATH_TOO_LONG above
+      /// MAX_PATH_BYTES.
+      void known_dir_set(known_dir_slot& s, const char* p, size_t n) noexcept;
+      /// @brief Sets a slot to `n` bytes of `p` followed by `suffix`.
+      void known_dir_join(
+          known_dir_slot& s, const char* p, size_t n, const char* suffix) noexcept;
+
+      /// @brief What platform_known_dir_mkdir() did.
+      enum class mkdir_outcome : uint8_t
+      {
+        CREATED,
+        EXISTS, ///< An entry has this name (a directory or not)
+        PARENT_MISSING,
+        FAILED, ///< See the error
+      };
+
+      // Implemented by the platform source (known_dir_posix.cpp,
+      // known_dir_windows.cpp)
+
+      /// @brief Checks and normalizes an override (non-empty, UTF-8, at
+      /// most MAX_PATH_BYTES) into `out` (MAX_PATH_BYTES + 1 bytes).
+      /// @return false if it is not a valid absolute path
+      bool platform_known_dir_normalize(
+          const char* path, size_t size, char* out, size_t* out_size) noexcept;
+      /// @brief Fills the slots that come from the snapshot (those not
+      /// overridden) and the flags.
+      void platform_known_dir_initialize(known_dir_table& t) noexcept;
+      void platform_known_dir_deinitialize() noexcept;
+      /// @brief The path of a purpose the table leaves to each call. `out`
+      /// holds MAX_PATH_BYTES + 1 bytes, terminated on success.
+      status<known_dir_get_result> platform_known_dir_resolve(
+          known_dir which, char* out, size_t* size) noexcept;
+      /// @brief app_private, backed_up and may_be_purged of a purpose
+      /// resolved by the platform.
+      void platform_known_dir_traits(
+          known_dir which, uint32_t flags, known_dir_info* info) noexcept;
+      /// @brief Whether two reported paths are the same text (Windows:
+      /// ignoring case).
+      bool platform_known_dir_same(
+          const char* a, size_t an, const char* b, size_t bn) noexcept;
+      /// @brief Creates one directory (POSIX: mode 0700).
+      /// @param path Absolute, terminated
+      mkdir_outcome platform_known_dir_mkdir(
+          const char* path, size_t size,
+          status<known_dir_open_result>* error) noexcept;
+      status<dir_set_backup_excluded_result> platform_dir_set_backup_excluded(
+          native_dir_t d, bool excluded) noexcept;
+
       /*****************************/
       /* DYNAMIC LIBRARIES         */
       /*****************************/
@@ -644,6 +742,10 @@ namespace osprim
       void platform_dynlib_close(native_dynlib_t lib) noexcept;
       /// @param name Terminated
       void* platform_dynlib_symbol(native_dynlib_t lib, const char* name) noexcept;
+      /// @param address Not null
+      /// @param out MAX_PATH_BYTES + 1 bytes; written on OK and IN_ARCHIVE
+      status<dynlib_path_result> platform_dynlib_path_of(
+          const void* address, char* out, size_t* size) noexcept;
 
       /*****************************/
       /* ASYNC I/O                 */
