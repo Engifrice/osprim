@@ -129,7 +129,7 @@ namespace osprim
           return {};
         }
         if (s.error != GR::KNOWN_DIR_GET_OK)
-          return fail(s.error);
+          return {s.error, s.native_kind, s.native_code};
         return detail::platform_known_dir_resolve(which, out, size);
       }
 

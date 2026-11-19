@@ -2,16 +2,17 @@
  * @file   known_dir_windows.cpp
  * @brief  Known directories on Windows.
  *
+ * Every folder is resolved once, by initialize(), into the table:
  * - DATA, STATE, CACHE: SHGetKnownFolderPath(FOLDERID_LocalAppData,
  *   KF_FLAG_DONT_VERIFY), its string freed with CoTaskMemFree. shell32 and
- *   ole32 are loaded on first use (from System32 only), not by
- *   initialize(): loading shell32 is costly. They stay loaded until the
- *   process ends. No COM initialization needed.
+ *   ole32 are loaded for that call only (from System32), then released. No
+ *   COM initialization needed.
  * - TEMP: GetTempPath2W where it exists (SYSTEM processes get
  *   C:\Windows\SystemTemp), else GetTempPathW.
  * - EXECUTABLE, RESOURCES: the directory of GetModuleFileNameW(nullptr).
- * - Everything is resolved at each call: the shell, not the environment,
- *   holds these folders. Overrides are normalized as file_open() does.
+ * A folder the user moves while the program runs (Properties > Location)
+ * is seen at the next initialize(). Overrides are normalized as
+ * file_open() does.
  * - Paths are compared ignoring case (CompareStringOrdinal).
  * - Backup exclusion: UNSUPPORTED (no per-folder mechanism; Windows'
  *   own backups skip AppData).
@@ -26,6 +27,8 @@
 
 #include <string.h>
 #include <wchar.h>
+
+#include <initializer_list>
 
 #ifndef LOAD_LIBRARY_SEARCH_SYSTEM32
   #define LOAD_LIBRARY_SEARCH_SYSTEM32 0x00000800
@@ -67,18 +70,7 @@ namespace osprim
       using task_mem_free_fn = void(WINAPI*)(void*);
       using get_temp_path_fn = DWORD(WINAPI*)(DWORD, LPWSTR);
 
-      /// @brief The functions loaded on first use.
-      struct shell_api
-      {
-        HMODULE shell32;
-        HMODULE ole32;
-        get_known_folder_fn get_known_folder;
-        task_mem_free_fn task_mem_free;
-        get_temp_path_fn get_temp_path2;
-      };
-
-      shell_api g_shell{};
-      INIT_ONCE g_shell_once = INIT_ONCE_STATIC_INIT;
+      constexpr DWORD WIDE_CAPACITY = MAX_PATH_BYTES + 16;
 
       template<class F>
       F resolve_proc(HMODULE module, const char* name) noexcept
@@ -90,36 +82,44 @@ namespace osprim
             reinterpret_cast<void (*)(void)>(::GetProcAddress(module, name)));
       }
 
-      BOOL CALLBACK load_shell(PINIT_ONCE, PVOID, PVOID*) noexcept
+      known_dir_slot& slot(known_dir_table& t, known_dir d) noexcept
       {
-        g_shell.shell32 =
-            ::LoadLibraryExW(L"shell32.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
-        g_shell.ole32 =
-            ::LoadLibraryExW(L"ole32.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
-        g_shell.get_known_folder = resolve_proc<get_known_folder_fn>(
-            g_shell.shell32, "SHGetKnownFolderPath");
-        g_shell.task_mem_free =
-            resolve_proc<task_mem_free_fn>(g_shell.ole32, "CoTaskMemFree");
-        g_shell.get_temp_path2 = resolve_proc<get_temp_path_fn>(
-            ::GetModuleHandleW(L"kernel32.dll"), "GetTempPath2W");
-        return TRUE;
+        return t.slots[static_cast<size_t>(d)];
       }
 
-      const shell_api& shell() noexcept
+      /// @brief Records a failure in a slot.
+      void set_error(known_dir_slot& s, status<GR> e) noexcept
       {
-        ::InitOnceExecuteOnce(&g_shell_once, &load_shell, nullptr, nullptr);
-        return g_shell;
+        s.set         = false;
+        s.error       = e.result;
+        s.native_kind = e.native_kind;
+        s.native_code = e.native_code;
       }
 
-      status<GR> report(
-          const wchar_t* w, size_t units, char* out, size_t* size) noexcept
+      /// @brief Fills a slot (unless overridden) from a Win32 path.
+      void set_wide(known_dir_slot& s, const wchar_t* w, size_t units) noexcept
       {
-        const uint32_t e = windows_report_path(w, units, out, size);
+        if (s.set)
+          return;
+        size_t n         = 0;
+        const uint32_t e = windows_report_path(w, units, s.path, &n);
         if (e == ERROR_FILENAME_EXCED_RANGE)
-          return fail(GR::KNOWN_DIR_GET_PATH_TOO_LONG);
-        if (e != 0)
-          return fail_win(GR::KNOWN_DIR_GET_SYSTEM_ERROR, e);
-        return {};
+          set_error(s, fail(GR::KNOWN_DIR_GET_PATH_TOO_LONG));
+        else if (e != 0)
+          set_error(s, fail_win(GR::KNOWN_DIR_GET_SYSTEM_ERROR, e));
+        else
+        {
+          s.size  = n;
+          s.set   = true;
+          s.error = GR::KNOWN_DIR_GET_OK;
+        }
+      }
+
+      /// @brief Fills a slot (unless overridden) with a failure.
+      void set_failure(known_dir_slot& s, status<GR> e) noexcept
+      {
+        if (!s.set)
+          set_error(s, e);
       }
 
       /// @brief An HRESULT as a status: its Win32 code when it carries one.
@@ -131,7 +131,97 @@ namespace osprim
         return fail(GR::KNOWN_DIR_GET_SYSTEM_ERROR);
       }
 
-      constexpr DWORD WIDE_CAPACITY = MAX_PATH_BYTES + 16;
+      /// @brief DATA, STATE and CACHE: LocalAppData, through shell32.
+      void snapshot_local_app_data(known_dir_table& t) noexcept
+      {
+        known_dir_slot* const slots[] = {
+            &slot(t, known_dir::KNOWN_DIR_DATA),
+            &slot(t, known_dir::KNOWN_DIR_STATE),
+            &slot(t, known_dir::KNOWN_DIR_CACHE),
+        };
+        if (slots[0]->set && slots[1]->set && slots[2]->set)
+          return; // all overridden: shell32 is not even loaded
+
+        status<GR> error{};
+        const HMODULE shell32 =
+            ::LoadLibraryExW(L"shell32.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
+        const HMODULE ole32 =
+            ::LoadLibraryExW(L"ole32.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
+        const auto get_known_folder =
+            resolve_proc<get_known_folder_fn>(shell32, "SHGetKnownFolderPath");
+        const auto task_mem_free =
+            resolve_proc<task_mem_free_fn>(ole32, "CoTaskMemFree");
+        if (get_known_folder == nullptr || task_mem_free == nullptr)
+          error = fail_win(GR::KNOWN_DIR_GET_SYSTEM_ERROR, ::GetLastError());
+        else
+        {
+          PWSTR p          = nullptr;
+          const HRESULT hr = get_known_folder(
+              &FOLDER_LOCAL_APP_DATA, KNOWN_FOLDER_DONT_VERIFY, nullptr, &p);
+          if (FAILED(hr) || p == nullptr)
+            error = fail_hresult(hr);
+          else
+            for (known_dir_slot* s : slots)
+              set_wide(*s, p, ::wcslen(p));
+          if (p != nullptr)
+            task_mem_free(p);
+        }
+        if (!error.ok())
+          for (known_dir_slot* s : slots)
+            set_failure(*s, error);
+        if (ole32 != nullptr)
+          ::FreeLibrary(ole32);
+        if (shell32 != nullptr)
+          ::FreeLibrary(shell32);
+      }
+
+      void snapshot_temp(known_dir_table& t) noexcept
+      {
+        known_dir_slot& s = slot(t, known_dir::KNOWN_DIR_TEMP);
+        if (s.set)
+          return;
+        const auto temp2 = resolve_proc<get_temp_path_fn>(
+            ::GetModuleHandleW(L"kernel32.dll"), "GetTempPath2W");
+        wchar_t w[WIDE_CAPACITY];
+        const DWORD n = temp2 != nullptr ? temp2(WIDE_CAPACITY, w)
+                                         : ::GetTempPathW(WIDE_CAPACITY, w);
+        if (n == 0)
+          set_error(s, fail_win(GR::KNOWN_DIR_GET_SYSTEM_ERROR, ::GetLastError()));
+        else if (n >= WIDE_CAPACITY)
+          set_error(s, fail(GR::KNOWN_DIR_GET_PATH_TOO_LONG));
+        else
+          set_wide(s, w, n);
+      }
+
+      void snapshot_executable(known_dir_table& t) noexcept
+      {
+        known_dir_slot& exe = slot(t, known_dir::KNOWN_DIR_EXECUTABLE);
+        known_dir_slot& res = slot(t, known_dir::KNOWN_DIR_RESOURCES);
+        if (exe.set && res.set)
+          return;
+        wchar_t w[WIDE_CAPACITY];
+        const DWORD n = ::GetModuleFileNameW(nullptr, w, WIDE_CAPACITY);
+        status<GR> error{};
+        size_t units = n;
+        if (n == 0)
+          error = fail_win(GR::KNOWN_DIR_GET_SYSTEM_ERROR, ::GetLastError());
+        else if (n >= WIDE_CAPACITY)
+          error = fail(GR::KNOWN_DIR_GET_PATH_TOO_LONG);
+        else
+        {
+          while (units > 0 && w[units - 1] != L'\\' && w[units - 1] != L'/')
+            --units;
+          if (units == 0)
+            error = fail(GR::KNOWN_DIR_GET_SYSTEM_ERROR);
+        }
+        for (known_dir_slot* s : {&exe, &res})
+        {
+          if (error.ok())
+            set_wide(*s, w, units); // the separator goes (except at a root)
+          else
+            set_failure(*s, error);
+        }
+      }
     } // namespace
 
     namespace detail
@@ -146,71 +236,21 @@ namespace osprim
         return windows_report_path(wide, ::wcslen(wide), out, out_size) == 0;
       }
 
-      void platform_known_dir_initialize(known_dir_table&) noexcept
+      void platform_known_dir_initialize(known_dir_table& t) noexcept
       {
+        snapshot_local_app_data(t);
+        snapshot_temp(t);
+        snapshot_executable(t);
       }
 
       void platform_known_dir_deinitialize() noexcept
       {
-        // shell32 and ole32 stay loaded until the process ends: shell32 may
-        // leave worker threads and hooks behind, which unloading it would
-        // crash (and a later initialize() would load it again for nothing)
       }
 
       status<known_dir_get_result> platform_known_dir_resolve(
-          known_dir which, char* out, size_t* size) noexcept
+          known_dir, char*, size_t*) noexcept
       {
-        wchar_t w[WIDE_CAPACITY];
-        switch (which)
-        {
-        case known_dir::KNOWN_DIR_DATA:
-        case known_dir::KNOWN_DIR_STATE:
-        case known_dir::KNOWN_DIR_CACHE:
-        {
-          const shell_api& api = shell();
-          if (api.get_known_folder == nullptr || api.task_mem_free == nullptr)
-            return fail_win(GR::KNOWN_DIR_GET_SYSTEM_ERROR, ERROR_PROC_NOT_FOUND);
-          PWSTR p          = nullptr;
-          const HRESULT hr = api.get_known_folder(
-              &FOLDER_LOCAL_APP_DATA, KNOWN_FOLDER_DONT_VERIFY, nullptr, &p);
-          if (FAILED(hr) || p == nullptr)
-          {
-            if (p != nullptr)
-              api.task_mem_free(p);
-            return fail_hresult(hr);
-          }
-          const status<GR> s = report(p, ::wcslen(p), out, size);
-          api.task_mem_free(p);
-          return s;
-        }
-        case known_dir::KNOWN_DIR_TEMP:
-        {
-          const get_temp_path_fn temp2 = shell().get_temp_path2;
-          const DWORD n = temp2 != nullptr ? temp2(WIDE_CAPACITY, w)
-                                           : ::GetTempPathW(WIDE_CAPACITY, w);
-          if (n == 0)
-            return fail_win(GR::KNOWN_DIR_GET_SYSTEM_ERROR, ::GetLastError());
-          if (n >= WIDE_CAPACITY)
-            return fail(GR::KNOWN_DIR_GET_PATH_TOO_LONG);
-          return report(w, n, out, size);
-        }
-        case known_dir::KNOWN_DIR_EXECUTABLE:
-        case known_dir::KNOWN_DIR_RESOURCES:
-        {
-          const DWORD n = ::GetModuleFileNameW(nullptr, w, WIDE_CAPACITY);
-          if (n == 0)
-            return fail_win(GR::KNOWN_DIR_GET_SYSTEM_ERROR, ::GetLastError());
-          if (n >= WIDE_CAPACITY)
-            return fail(GR::KNOWN_DIR_GET_PATH_TOO_LONG);
-          size_t units = n;
-          while (units > 0 && w[units - 1] != L'\\' && w[units - 1] != L'/')
-            --units;
-          if (units == 0)
-            return fail(GR::KNOWN_DIR_GET_SYSTEM_ERROR);
-          return report(
-              w, units, out, size); // the separator goes (except at a root)
-        }
-        }
+        // Every purpose is in the table
         return fail(GR::KNOWN_DIR_GET_NOT_CONFIGURED);
       }
 

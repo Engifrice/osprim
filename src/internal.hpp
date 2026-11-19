@@ -656,6 +656,9 @@ namespace osprim
         /// @brief When not `set`: KNOWN_DIR_GET_OK to resolve at each call,
         /// otherwise the answer (UNSUPPORTED, NOT_CONFIGURED, PATH_TOO_LONG)
         known_dir_get_result error;
+        /// @brief The OS error behind `error`, if any
+        native_error_kind native_kind;
+        int32_t native_code;
       };
 
       /// @brief The table, written by initialize() only (read from any

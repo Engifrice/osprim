@@ -67,9 +67,10 @@
  * Snap markers, the Apple sandbox marker) into a static table. Later
  * changes to the environment are ignored: set them before initialize(), or
  * use overrides. Every function here may be called from any thread.
- * Windows folders are resolved at each call (they come from the shell, not
- * the environment); macOS and iOS paths come from HOME, so a sandboxed
- * process gets its container.
+ * Windows folders are resolved there too (shell32 is loaded for
+ * SHGetKnownFolderPath, then released): a folder the user moves while the
+ * program runs is seen at the next initialize(). macOS and iOS paths come
+ * from HOME, so a sandboxed process gets its container.
  *
  * The rules in a nutshell:
  * - Add your own vendor/game subdirectory where app_private is false.
