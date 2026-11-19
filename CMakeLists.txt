@@ -36,16 +36,16 @@ endif()
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Android")
   set(_osprim_platform 2)
-  set(_osprim_platform_sources src/clock_linux.cpp src/wait_linux.cpp src/thread_posix.cpp src/power_linux.cpp src/topology_linux.cpp src/file_posix.cpp src/path_posix.cpp src/dynlib_posix.cpp)
+  set(_osprim_platform_sources src/clock_linux.cpp src/wait_linux.cpp src/thread_posix.cpp src/power_linux.cpp src/topology_linux.cpp src/file_posix.cpp src/path_posix.cpp src/known_dir_posix.cpp src/dynlib_posix.cpp)
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
   set(_osprim_platform 1)
-  set(_osprim_platform_sources src/clock_linux.cpp src/wait_linux.cpp src/thread_posix.cpp src/power_linux.cpp src/topology_linux.cpp src/file_posix.cpp src/path_posix.cpp src/dynlib_posix.cpp src/async_io_linux.cpp)
+  set(_osprim_platform_sources src/clock_linux.cpp src/wait_linux.cpp src/thread_posix.cpp src/power_linux.cpp src/topology_linux.cpp src/file_posix.cpp src/path_posix.cpp src/known_dir_posix.cpp src/dynlib_posix.cpp src/async_io_linux.cpp)
 elseif(WIN32)
   set(_osprim_platform 3)
-  set(_osprim_platform_sources src/clock_windows.cpp src/wait_windows.cpp src/thread_windows.cpp src/power_windows.cpp src/topology_windows.cpp src/file_windows.cpp src/path_windows.cpp src/dynlib_windows.cpp src/async_io_windows.cpp)
+  set(_osprim_platform_sources src/clock_windows.cpp src/wait_windows.cpp src/thread_windows.cpp src/power_windows.cpp src/topology_windows.cpp src/file_windows.cpp src/path_windows.cpp src/known_dir_windows.cpp src/dynlib_windows.cpp src/async_io_windows.cpp)
 elseif(APPLE)
   set(_osprim_platform 4)
-  set(_osprim_platform_sources src/clock_apple.cpp src/wait_apple.cpp src/thread_posix.cpp src/power_apple.cpp src/topology_apple.cpp src/file_posix.cpp src/path_posix.cpp src/dynlib_posix.cpp)
+  set(_osprim_platform_sources src/clock_apple.cpp src/wait_apple.cpp src/thread_posix.cpp src/power_apple.cpp src/topology_apple.cpp src/file_posix.cpp src/path_posix.cpp src/known_dir_posix.cpp src/dynlib_posix.cpp)
 else()
   message(FATAL_ERROR "osprim: unsupported system '${CMAKE_SYSTEM_NAME}'")
 endif()
@@ -69,6 +69,7 @@ add_library(osprim ${_osprim_library_type}
   include/osprim/clock.hpp
   include/osprim/dynlib.hpp
   include/osprim/file.hpp
+  include/osprim/known_dir.hpp
   include/osprim/path.hpp
   include/osprim/region.hpp
   include/osprim/wait.hpp
@@ -84,6 +85,7 @@ add_library(osprim ${_osprim_library_type}
   src/clock.cpp
   src/dynlib.cpp
   src/file.cpp
+  src/known_dir.cpp
   src/path.cpp
   src/thread.cpp
   src/power.cpp
@@ -118,8 +120,9 @@ if(WIN32)
   target_link_libraries(osprim PUBLIC synchronization winmm)
 elseif(APPLE)
   # Foundation and the Objective-C runtime: NSProcessInfo activities and
-  # thermal state. Blocks: the thermal notification handler.
-  target_link_libraries(osprim PUBLIC "-framework Foundation" objc)
+  # thermal state. CoreFoundation: the main bundle's resources, backup
+  # exclusion. Blocks: the thermal notification handler.
+  target_link_libraries(osprim PUBLIC "-framework Foundation" "-framework CoreFoundation" objc)
   target_compile_options(osprim PRIVATE -fblocks)
 else()
   # dlopen: dynamic libraries; on Android also libandroid.so (performance
